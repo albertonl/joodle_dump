@@ -16,6 +16,8 @@ make
 - GCC compiler
 - [TIGR](https://github.com/erkkah/tigr/tree/master) C graphical library source files (included in the source of this project)
 - `make`
+- X11 library (install via `sudo apt install libx11-dev`)
+- OpenGL library (install via `sudo apt install freeglut3-dev`)
 
 ## Controls
 
