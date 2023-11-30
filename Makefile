@@ -11,4 +11,4 @@ else
 endif
 
 joodle : src/game.c src/tigr.c
-	g++ $^ -Os -o $@ $(CFLAGS) $(LDFLAGS)
+	gcc $^ -Os -o $@ $(CFLAGS) $(LDFLAGS)
