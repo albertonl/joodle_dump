@@ -21,6 +21,9 @@
 #define BLOCK_MAXN 50
 #define JUMP_HEIGHT 150
 
+#define height(x) x->h
+#define width(x) x->w
+
 typedef struct {
     int tipo; // 1 -> bloque solido, 2 -> bloque que se rompe, 3 -> bloque movil, etc.
     int x, y;
@@ -30,6 +33,10 @@ typedef struct {
 // Periodical functions
 void update(Tigr*, Tigr*, int[HEIGHT][WIDTH], int, int, int, float*, float*);
 void drawScreen(Tigr*, Bloque*);
+
+// Movement functions
+float y(int, int);
+float dy(int, int);
 
 // State checkers
 bool isOnPlatform(Tigr*, int[HEIGHT][WIDTH], float, float);
@@ -108,8 +115,8 @@ int main(int argc, char* argv[]) {
 
         // Composite the backdrop and sprite onto the screen.
         tigrBlit(screen, backdrop, 0, 0, 0, 0, WIDTH, HEIGHT);
-        tigrBlitAlpha(screen, player, playerx, playery, 0, 0, player->w,
-                      player->h, 1.0f);
+        tigrBlitAlpha(screen, player, playerx, playery, 0, 0, width(player),
+                      height(player), 1.0f);
 
         tigrUpdate(screen);
     }
@@ -134,7 +141,6 @@ int main(int argc, char* argv[]) {
     playery: pointer to the Y position (upper side) of the sprite.
 */
 void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt, int blocky, float* playerx, float* playery) {
-    float y, dy;
     bool on_platform;
 
     // X-axis movement (check if key is pressed and move accordingly)
@@ -145,28 +151,25 @@ void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int d
 
     // Correct collisions with side walls
     if (*playerx < 0) *playerx = 0;
-    else if (*playerx > WIDTH-(player->w)) *playerx = WIDTH-(player->w);
+    else if (*playerx > WIDTH-(width(player))) *playerx = WIDTH-(width(player));
 
     // Y-axis movement (simple harmonic motion)
     // y(t) = JUMP_HEIGHT * sin(2*M_PI*0.5(t-t0))
-    
-    y = JUMP_HEIGHT*sin(M_PI*0.001*(dt-t0));
-    dy = JUMP_HEIGHT*M_PI*0.001*cos(M_PI*0.001*(dt-t0)); // derivative of y
 
     on_platform = isOnPlatform(player, matrix, *playerx, *playery);
 
     if (*playery >= blocky && !on_platform) {
         *playery += 5;
     } else {
-        if (!on_platform && y < 0 && dy < 0) *playery += 5;
-        else *playery = blocky-fabs(y);
+        if (!on_platform && y(dt, t0) < 0 && dy(dt, t0) < 0) *playery += 5;
+        else *playery = blocky-fabs(y(dt, t0));
 
         if (on_platform) (*playery)--;
     }
 
     // Correct collisions with top and bottom ends of the screen
     if (*playery < 0) *playery = 0;
-    else if (*playery > HEIGHT-(player->h)) *playery = HEIGHT-(player->h);
+    else if (*playery > HEIGHT-(height(player))) *playery = HEIGHT-(height(player));
 }
 
 /*
@@ -189,6 +192,42 @@ void drawScreen(Tigr* backdrop, Bloque* bloques) {
 }
 
 // ----------------------------------- //
+//         MOVEMENT FUNCTIONS          //
+// ----------------------------------- //
+
+/*
+    Function: y
+    -----------
+    Returns the y-coordinate variation of the sprite given a time differential.
+    This value is calculated as the following simple harmonic motion function:
+        y(t) = JUMP_HEIGHT * sin(2 * pi * 0.5 * (t-t0))
+    
+    The movement is constant and has an angular velocity of PI rad/s (f = 0.5 Hz).
+
+    t: the current timestamp, in milliseconds.
+    t0: the timestamp of the beginning of the oscillation, in milliseconds.
+
+    returns: the y-coordinate variation in the (t-t0) time variation.
+*/
+float y(int t, int t0) {
+    return JUMP_HEIGHT*sin(M_PI*0.001*(t-t0));
+}
+
+/*
+    Function: dy
+    ------------
+    Returns the derivative of y(t), i.e. the vertical speed in pixels/s.
+
+    t: the current timestamp, in milliseconds.
+    t0: the timestamp of the beginning of the oscillation, in milliseconds.
+
+    returns: the current vertical speed of the sprite, in pixels/s.
+*/
+float dy(int t, int t0) {
+    return JUMP_HEIGHT*M_PI*0.001*cos(M_PI*0.001*(t-t0));
+}
+
+// ----------------------------------- //
 //          STATUS FUNCTIONS           //
 // ----------------------------------- //
 
@@ -206,8 +245,8 @@ void drawScreen(Tigr* backdrop, Bloque* bloques) {
 */
 bool isOnPlatform(Tigr* player, int matrix[HEIGHT][WIDTH], float playerx, float playery) {
     int px = (int)playerx, py = (int)playery;
-    if (matrix[py+(player->h)][px+((player->w)/2)] != 0
-        && matrix[py+(player->h)-5][px+((player->w)/2)] == 0)
+    if (matrix[py+(height(player))][px+((width(player))/2)] != 0
+        && matrix[py+(height(player))-5][px+((width(player))/2)] == 0)
         return true;
     return false;
 }
@@ -224,10 +263,7 @@ bool isOnPlatform(Tigr* player, int matrix[HEIGHT][WIDTH], float playerx, float 
     returns: true if y(t) > 0 and d(y)/dt > 0, false otherwise.
 */
 bool isGoingUp(Tigr* player, int t, int t0) {
-    float y = JUMP_HEIGHT*sin(M_PI*0.001*(t-t0));
-    float dy = JUMP_HEIGHT*M_PI*0.001*cos(M_PI*0.001*(t-t0)); // derivative of y
-
-    return (y > 0 && dy > 0);
+    return (y(t, t0) > 0 && dy(t, t0) > 0);
 }
 
 // ---------------------------------- //
