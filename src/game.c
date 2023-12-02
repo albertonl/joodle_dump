@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include <stdlib.h>
+#include <time.h>
 #include <sys/time.h>
 #include "tigr.h"
 
@@ -20,6 +21,8 @@
 #define HEIGHT 640
 #define BLOCK_MAXN 50
 #define JUMP_HEIGHT 150
+#define PLATFORM_WIDTH 70
+#define PLATFORM_HEIGHT 25
 
 #define height(x) x->h
 #define width(x) x->w
@@ -33,6 +36,7 @@ typedef struct {
 // Periodical functions
 void update(Tigr*, Tigr*, int[HEIGHT][WIDTH], int, int, int, float*, float*);
 void drawScreen(Tigr*, Bloque*);
+void generatePlatforms(Bloque*, int[HEIGHT][WIDTH]);
 
 // Movement functions
 float y(int, int);
@@ -45,6 +49,7 @@ bool isGoingUp(Tigr*, int, int);
 // Utilities
 float min(float, float);
 float max(float, float);
+int randrange(int, int);
 int timeInMilliseconds();
 
 int main(int argc, char* argv[]) {
@@ -56,7 +61,7 @@ int main(int argc, char* argv[]) {
         tigrError(0, "Cannot load obamium_min.png");
     }
 
-    float playerx = WIDTH/2, playery = 1;
+    float playerx = WIDTH/2, playery = HEIGHT-(60+height(player));
     int blocky = 0;
     int t, t0;
 
@@ -64,6 +69,9 @@ int main(int argc, char* argv[]) {
 
     int screen_matrix[HEIGHT][WIDTH];
     Bloque bloques[BLOCK_MAXN];
+
+    // Use current time as seed for random generator
+    srand(time(NULL));
 
     // Initialize block array to 0
     for (int i = 0; i < BLOCK_MAXN; i++) {
@@ -76,33 +84,9 @@ int main(int argc, char* argv[]) {
             screen_matrix[i][j] = 0;
         }
     }
-    
-    // Bottom solid line
-    for (int i = HEIGHT-50; i < HEIGHT; i++) {
-        for (int j = 0; j < WIDTH; j++) {
-            screen_matrix[i][j] = 1;
-        }
-    }
-
-    bloques[0].tipo = 1;
-    bloques[0].x = 0;
-    bloques[0].y = HEIGHT-50;
-    bloques[0].h = 50;
-    bloques[0].w = WIDTH;
-    
-    for (int i = HEIGHT-150; i <= HEIGHT-120; i++) {
-        for (int j = 40; j <= 140; j++) {
-            screen_matrix[i][j] = 1;
-        }
-    }
-
-    bloques[1].tipo = 1;
-    bloques[1].x = 40;
-    bloques[1].y = HEIGHT-150;
-    bloques[1].w = 100;
-    bloques[1].h = 30;
 
     while (!tigrClosed(screen) && !tigrKeyDown(screen, TK_ESCAPE)) {
+        generatePlatforms(bloques, screen_matrix);
         drawScreen(backdrop, bloques);
         t = timeInMilliseconds();
 
@@ -187,6 +171,61 @@ void drawScreen(Tigr* backdrop, Bloque* bloques) {
     for (int i = 0; i < BLOCK_MAXN; i++) {
         if (bloques[i].tipo == 1) {
             tigrFill(backdrop, bloques[i].x, bloques[i].y, bloques[i].w, bloques[i].h, tigrRGB(0, 255, 0));
+        }
+    }
+}
+
+/*
+    Procedure: generatePlatforms
+    ----------------------------
+    Fills the block array with newly-generated platforms. Platforms have a 30%
+    chance of appearing 60 pixels above the previously generated platform, and
+    a 70% chance of appearing 120 pixels above the last platform.
+
+    bloques: an array with descriptions of all of the block's position and type.
+    a matrix with HEIGHT rows and WIDTH cols representing all the pixels in the screen.
+*/
+void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
+    Bloque generated_block;
+
+    generated_block.w = PLATFORM_WIDTH;
+    generated_block.h = PLATFORM_HEIGHT;
+    for (int idx = 0; idx < BLOCK_MAXN; idx++) {
+        if (bloques[idx].tipo == 0) {
+            if (idx == 0) {
+                // Bottom solid line
+                for (int i = HEIGHT-50; i < HEIGHT; i++) {
+                    for (int j = 0; j < WIDTH; j++) {
+                        matrix[i][j] = 1;
+                    }
+                }
+
+                bloques[idx].tipo = 1;
+                bloques[idx].x = 0;
+                bloques[idx].y = HEIGHT-50;
+                bloques[idx].h = 50;
+                bloques[idx].w = WIDTH;
+            } else {
+                // Generate a block 60 pixels above the previous one with 30% chance.
+                if (randrange(0, 10) < 3) {
+                    generated_block.tipo = 1;
+                    generated_block.y = bloques[idx-1].y - 60;
+                    generated_block.x = randrange(0, WIDTH-PLATFORM_WIDTH);
+                } else {
+                    // Otherwise generate a block 120 pixels above the previous one with 100% chance.
+                    generated_block.tipo = 1;
+                    generated_block.y = bloques[idx-1].y - 120;
+                    generated_block.x = randrange(0, WIDTH-PLATFORM_WIDTH);
+                }
+
+                for (int i = max(generated_block.y, 0); i < generated_block.y + generated_block.h; i++) {
+                    for (int j = 0; j < generated_block.w; j++) {
+                        matrix[i][generated_block.x + j] = generated_block.tipo;
+                    }
+                }
+
+                bloques[idx] = generated_block;
+            }
         }
     }
 }
@@ -298,6 +337,20 @@ float min(float a, float b) {
 float max(float a, float b) {
     if (a > b) return a;
     return b;
+}
+
+/*
+    Function: randrange
+    -------------------
+    Generates a random integer number in the range [lower, upper) (non-inclusive).
+
+    lower: the minimum value of the interval.
+    upper: the first value after the maximum value of the interval.
+
+    returns: the generated random number.
+*/
+int randrange(int lower, int upper) {
+    return (rand() % (upper - lower)) + lower;
 }
 
 /*
