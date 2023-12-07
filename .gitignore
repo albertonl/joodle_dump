@@ -56,3 +56,4 @@ joodle
 
 # Misc
 .vscode/
+.DS_Store
