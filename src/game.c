@@ -11,18 +11,21 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 #include <math.h>
 #include <stdlib.h>
+#include <limits.h>
 #include <time.h>
 #include <sys/time.h>
 #include "tigr.h"
 
 #define WIDTH 480
 #define HEIGHT 640
-#define BLOCK_MAXN 50
+#define BLOCK_MAXN 10
 #define JUMP_HEIGHT 150
 #define PLATFORM_WIDTH 70
 #define PLATFORM_HEIGHT 25
+#define SCROLL_SPEED 25
 
 #define height(x) x->h
 #define width(x) x->w
@@ -34,9 +37,10 @@ typedef struct {
 } Bloque;
 
 // Periodical functions
-void update(Tigr*, Tigr*, int[HEIGHT][WIDTH], int, int, int, float*, float*);
+void update(Tigr*, Tigr*, int[HEIGHT][WIDTH], int, int, int*, float*, float*, Bloque*);
 void drawScreen(Tigr*, Bloque*);
 void generatePlatforms(Bloque*, int[HEIGHT][WIDTH]);
+void bajarElementosPantalla(int, Bloque*);
 
 // Movement functions
 float y(int, int);
@@ -51,6 +55,7 @@ float min(float, float);
 float max(float, float);
 int randrange(int, int);
 int timeInMilliseconds();
+void shiftBlockArray(Bloque*, int);
 
 int main(int argc, char* argv[]) {
     Tigr* screen = tigrWindow(WIDTH, HEIGHT, "Joodle Dump", 0);
@@ -61,14 +66,14 @@ int main(int argc, char* argv[]) {
         tigrError(0, "Cannot load obamium_min.png");
     }
 
-    float playerx = WIDTH/2, playery = HEIGHT-(60+height(player));
-    int blocky = 0;
+    float playerx = WIDTH/2, playery = HEIGHT-200.0f;
+    int blocky = HEIGHT-60;
     int t, t0;
-
-    t = t0 = timeInMilliseconds();
 
     int screen_matrix[HEIGHT][WIDTH];
     Bloque bloques[BLOCK_MAXN];
+
+    t = t0 = timeInMilliseconds();
 
     // Use current time as seed for random generator
     srand(time(NULL));
@@ -94,8 +99,13 @@ int main(int argc, char* argv[]) {
             blocky = playery;
             t0 = t;
         }
+        
+        if (!isOnPlatform(player, screen_matrix, playerx, playery) && playery >= HEIGHT-height(player) && blocky < playery) {
+            printf("YOU DIED.\n");
+            break;
+        }
 
-        update(screen, player, screen_matrix, t0, t, blocky, &playerx, &playery);
+        update(screen, player, screen_matrix, t0, t, &blocky, &playerx, &playery, bloques);
 
         // Composite the backdrop and sprite onto the screen.
         tigrBlit(screen, backdrop, 0, 0, 0, 0, WIDTH, HEIGHT);
@@ -123,9 +133,11 @@ int main(int argc, char* argv[]) {
     blocky: the Y coordinate of the block on which the sprite is jumping.
     playerx: pointer to the X position (left side) of the sprite.
     playery: pointer to the Y position (upper side) of the sprite.
+    bloques: an array with descriptions of all of the blocks' position and type.
 */
-void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt, int blocky, float* playerx, float* playery) {
+void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt, int *blocky, float* playerx, float* playery, Bloque* bloques) {
     bool on_platform;
+    float yvariation = 0.0;
 
     // X-axis movement (check if key is pressed and move accordingly)
     if (tigrKeyHeld(screen, TK_LEFT) || tigrKeyHeld(screen, 'A'))
@@ -142,13 +154,21 @@ void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int d
 
     on_platform = isOnPlatform(player, matrix, *playerx, *playery);
 
-    if (*playery >= blocky && !on_platform) {
+    if (*playery >= *blocky && !on_platform) {
         *playery += 5;
     } else {
         if (!on_platform && y(dt, t0) < 0 && dy(dt, t0) < 0) *playery += 5;
-        else *playery = blocky-fabs(y(dt, t0));
+        else *playery = *blocky-fabs(y(dt, t0));
 
         if (on_platform) (*playery)--;
+
+        if(*playery<HEIGHT/2 && isGoingUp(player, dt, t0)){
+            yvariation = SCROLL_SPEED*dy(dt, t0);
+
+            bajarElementosPantalla(yvariation, bloques);
+            *playery += yvariation;
+            *blocky += yvariation;
+        }
     }
 
     // Correct collisions with top and bottom ends of the screen
@@ -183,11 +203,24 @@ void drawScreen(Tigr* backdrop, Bloque* bloques) {
     a 70% chance of appearing 120 pixels above the last platform.
 
     bloques: an array with descriptions of all of the block's position and type.
-    a matrix with HEIGHT rows and WIDTH cols representing all the pixels in the screen.
+    matrix: a matrix with HEIGHT rows and WIDTH cols representing all the pixels in the screen.
 */
 void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
     Bloque generated_block;
+    int overflow = 0;
 
+    // Get the number of platforms that overflow the height of the screen.
+    while (overflow < BLOCK_MAXN && bloques[overflow].y > HEIGHT) {
+        overflow++;
+    }
+
+    // Shift the block array to the left by that number of elements.
+    shiftBlockArray(bloques, overflow);
+
+    // Quick-reset matrix to 0.
+    memset(matrix, 0, HEIGHT*sizeof(matrix[0]));
+
+    // Generate new blocks on the right.
     generated_block.w = PLATFORM_WIDTH;
     generated_block.h = PLATFORM_HEIGHT;
     for (int idx = 0; idx < BLOCK_MAXN; idx++) {
@@ -218,14 +251,32 @@ void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
                     generated_block.x = randrange(0, WIDTH-PLATFORM_WIDTH);
                 }
 
-                for (int i = max(generated_block.y, 0); i < generated_block.y + generated_block.h; i++) {
-                    for (int j = 0; j < generated_block.w; j++) {
-                        matrix[i][generated_block.x + j] = generated_block.tipo;
-                    }
-                }
-
                 bloques[idx] = generated_block;
             }
+        }
+
+        for (int i = max(bloques[idx].y, 0); i < min(bloques[idx].y + bloques[idx].h, HEIGHT); i++) {
+            for (int j = 0; j < bloques[idx].w; j++) {
+                matrix[i][bloques[idx].x + j] = bloques[idx].tipo;
+            }
+        }
+    }
+}
+
+/*
+*/
+void bajarElementosPantalla(int n, Bloque* bloques) {
+    for (int i = 0; i < BLOCK_MAXN; i++) {
+        // Check for potential overflow or underflow before updating y
+        if ((n > 0 && INT_MAX - bloques[i].y < n) || (n < 0 && INT_MIN - bloques[i].y > n)) {
+            // Handle overflow or underflow case appropriately
+            if (n > 0) {
+                bloques[i].y = INT_MAX;
+            } else {
+                bloques[i].y = INT_MIN;
+            }
+        } else {
+            bloques[i].y += n;
         }
     }
 }
@@ -283,7 +334,7 @@ float dy(int t, int t0) {
     returns: true if the sprite is on a platform, false otherwise.
 */
 bool isOnPlatform(Tigr* player, int matrix[HEIGHT][WIDTH], float playerx, float playery) {
-    int px = (int)playerx, py = (int)playery;
+    int px = (int)playerx, py = (int)min(playery, HEIGHT-height(player)-1);
     if (matrix[py+(height(player))][px+((width(player))/2)] != 0
         && matrix[py+(height(player))-5][px+((width(player))/2)] == 0)
         return true;
@@ -366,4 +417,13 @@ int timeInMilliseconds() {
 
     gettimeofday(&tv, NULL);
     return (((int)tv.tv_sec)*1000+(tv.tv_usec)/1000);
+}
+
+void shiftBlockArray(Bloque* bloques, int n) {
+    if (n > 0) {
+        for (int i = 0; i < BLOCK_MAXN-n; i++) {
+            bloques[i] = bloques[i+n];
+            bloques[i+n].tipo = 0;
+        }
+    }
 }
