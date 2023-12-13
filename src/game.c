@@ -25,7 +25,7 @@
 #define JUMP_HEIGHT 150
 #define PLATFORM_WIDTH 70
 #define PLATFORM_HEIGHT 25
-#define SCROLL_SPEED 25
+#define SCROLL_SPEED 20
 
 #define height(x) x->h
 #define width(x) x->w
@@ -202,7 +202,7 @@ void drawScreen(Tigr* backdrop, Bloque* bloques) {
     chance of appearing 60 pixels above the previously generated platform, and
     a 70% chance of appearing 120 pixels above the last platform.
 
-    bloques: an array with descriptions of all of the block's position and type.
+    bloques: an array with descriptions of all of the blocks' position and type.
     matrix: a matrix with HEIGHT rows and WIDTH cols representing all the pixels in the screen.
 */
 void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
@@ -264,6 +264,12 @@ void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
 }
 
 /*
+    Procedure: bajarElementosPantalla
+    ---------------------------------
+    Moves all of the defined platforms down by a specified number of pixels.
+
+    n: the number of pixels to lower the platforms.
+    bloques: an array with descriptions of all of the blocks' position and type.
 */
 void bajarElementosPantalla(int n, Bloque* bloques) {
     for (int i = 0; i < BLOCK_MAXN; i++) {
@@ -419,6 +425,15 @@ int timeInMilliseconds() {
     return (((int)tv.tv_sec)*1000+(tv.tv_usec)/1000);
 }
 
+/*
+    Procedure: shiftBlockArray
+    --------------------------
+    Shifts the elements of an array by n positions to the left. The first n
+    elements are discarded.
+
+    bloques: an array with descriptions of all of the blocks' position and type.
+    n: the number of positions to shift the array.
+*/
 void shiftBlockArray(Bloque* bloques, int n) {
     if (n > 0) {
         for (int i = 0; i < BLOCK_MAXN-n; i++) {
