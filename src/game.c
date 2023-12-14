@@ -100,7 +100,6 @@ int main(int argc, char* argv[]) {
 
         if (isOnPlatform(player, screen_matrix, playerx, playery) && !isGoingUp(player, t, t0)) {
             blocky = playery;
-            printf("%d. SET BLOCKY to %d on score %lld\n", ++counter, blocky, score);
             t0 = t;
         }
 
@@ -166,9 +165,6 @@ int update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt
     if (*playery >= *blocky && !on_platform) {
         *playery += 5;
     } else {
-        printf("\tChange from previous tick: %f\tCurrent player y-pos: %f\tY variation: %f\tY derivative: %f\n", (*blocky-fabsf(y(dt, t0)))-(*playery), *blocky-fabsf(y(dt, t0)), y(dt, t0), dy(dt, t0));
-        if (on_platform) printf("\tYES PLATFORM\n");
-        else printf("\tNO PLATFORM\n");
         if (!on_platform && *playery < HEIGHT-height(player) && y(dt, t0) < 0 && dy(dt, t0) < 0) *playery += 5;
         else *playery = *blocky-fabsf(y(dt, t0));
 
@@ -358,7 +354,7 @@ float dy(int t, int t0) {
 bool isOnPlatform(Tigr* player, int matrix[HEIGHT][WIDTH], float playerx, float playery) {
     int px = (int)playerx, py = (int)min(playery, HEIGHT-height(player)-1);
     if (matrix[py+(height(player))][px+((width(player))/2)] != 0
-        && matrix[py+(height(player))-5][px+((width(player))/2)] == 0)
+        && matrix[py+(height(player))-10][px+((width(player))/2)] == 0)
         return true;
     return false;
 }
