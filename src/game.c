@@ -37,7 +37,7 @@ typedef struct {
 } Bloque;
 
 // Periodical functions
-void update(Tigr*, Tigr*, int[HEIGHT][WIDTH], int, int, int*, float*, float*, Bloque*);
+int update(Tigr*, Tigr*, int[HEIGHT][WIDTH], int, int, int*, float*, float*, Bloque*);
 void drawScreen(Tigr*, Bloque*);
 void generatePlatforms(Bloque*, int[HEIGHT][WIDTH]);
 void bajarElementosPantalla(int, Bloque*);
@@ -70,6 +70,9 @@ int main(int argc, char* argv[]) {
     int blocky = HEIGHT-60;
     int t, t0;
 
+    long long score = 0;
+    bool alive = true;
+    
     int screen_matrix[HEIGHT][WIDTH];
     Bloque bloques[BLOCK_MAXN];
 
@@ -89,28 +92,32 @@ int main(int argc, char* argv[]) {
             screen_matrix[i][j] = 0;
         }
     }
-
-    while (!tigrClosed(screen) && !tigrKeyDown(screen, TK_ESCAPE)) {
+    int counter = 0;
+    while (!tigrClosed(screen) && !tigrKeyDown(screen, TK_ESCAPE) && alive) {
         generatePlatforms(bloques, screen_matrix);
         drawScreen(backdrop, bloques);
         t = timeInMilliseconds();
 
         if (isOnPlatform(player, screen_matrix, playerx, playery) && !isGoingUp(player, t, t0)) {
             blocky = playery;
+            printf("%d. SET BLOCKY to %d on score %lld\n", ++counter, blocky, score);
             t0 = t;
         }
-        
-        if (!isOnPlatform(player, screen_matrix, playerx, playery) && playery >= HEIGHT-height(player) && blocky < playery) {
-            printf("YOU DIED.\n");
-            break;
-        }
 
-        update(screen, player, screen_matrix, t0, t, &blocky, &playerx, &playery, bloques);
+        // Check if user is touching the bottom of the screen
+        if (!isOnPlatform(player, screen_matrix, playerx, playery) && playery >= HEIGHT-height(player) && blocky < playery) {
+            printf("YOU DIED. Your score: %lld\n", score);
+            alive = false;
+        } else {
+            score += update(screen, player, screen_matrix, t0, t, &blocky, &playerx, &playery, bloques);
+        }
 
         // Composite the backdrop and sprite onto the screen.
         tigrBlit(screen, backdrop, 0, 0, 0, 0, WIDTH, HEIGHT);
         tigrBlitAlpha(screen, player, playerx, playery, 0, 0, width(player),
-                      height(player), 1.0f);
+                    height(player), 1.0f);
+        
+        tigrPrint(screen, tfont, 30, 30, tigrRGB(0, 0, 0), "%lld", score);
 
         tigrUpdate(screen);
     }
@@ -121,7 +128,7 @@ int main(int argc, char* argv[]) {
 }
 
 /*
-    Procedure: update
+    Function: update
     -----------------
     Updates the game state. It is called every tick.
 
@@ -134,8 +141,10 @@ int main(int argc, char* argv[]) {
     playerx: pointer to the X position (left side) of the sprite.
     playery: pointer to the Y position (upper side) of the sprite.
     bloques: an array with descriptions of all of the blocks' position and type.
+
+    returns: the variation in the game score.
 */
-void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt, int *blocky, float* playerx, float* playery, Bloque* bloques) {
+int update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt, int *blocky, float* playerx, float* playery, Bloque* bloques) {
     bool on_platform;
     float yvariation = 0.0;
 
@@ -157,6 +166,9 @@ void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int d
     if (*playery >= *blocky && !on_platform) {
         *playery += 5;
     } else {
+        printf("\tChange from previous tick: %f\tCurrent player y-pos: %f\tY variation: %f\tY derivative: %f\n", (*blocky-fabsf(y(dt, t0)))-(*playery), *blocky-fabsf(y(dt, t0)), y(dt, t0), dy(dt, t0));
+        if (on_platform) printf("\tYES PLATFORM\n");
+        else printf("\tNO PLATFORM\n");
         if (!on_platform && *playery < HEIGHT-height(player) && y(dt, t0) < 0 && dy(dt, t0) < 0) *playery += 5;
         else *playery = *blocky-fabsf(y(dt, t0));
 
@@ -175,9 +187,9 @@ void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int d
     if (*playery < 0) *playery = 0;
     else if (*playery > HEIGHT-(height(player))-bloques[0].h && bloques[0].w == WIDTH) {
         *playery = HEIGHT-(height(player))-bloques[0].h;
-    } else if (*playery > HEIGHT-(height(player))) {
-        *playery = HEIGHT-(height(player));
     }
+
+    return yvariation;
 }
 
 /*
@@ -363,7 +375,8 @@ bool isOnPlatform(Tigr* player, int matrix[HEIGHT][WIDTH], float playerx, float 
     returns: true if y(t) > 0 and d(y)/dt > 0, false otherwise.
 */
 bool isGoingUp(Tigr* player, int t, int t0) {
-    return (y(t, t0) > 0 && dy(t, t0) > 0);
+    return dy(t, t0) > 0;
+    // return (y(t, t0) > 0 && dy(t, t0) > 0);
 }
 
 // ---------------------------------- //
