@@ -22,7 +22,7 @@
 #define WIDTH 480
 #define HEIGHT 640
 #define BLOCK_MAXN 10
-#define JUMP_HEIGHT 150
+#define JUMP_HEIGHT 200
 #define PLATFORM_WIDTH 70
 #define PLATFORM_HEIGHT 25
 #define SCROLL_SPEED 20
@@ -157,8 +157,8 @@ void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int d
     if (*playery >= *blocky && !on_platform) {
         *playery += 5;
     } else {
-        if (!on_platform && y(dt, t0) < 0 && dy(dt, t0) < 0) *playery += 5;
-        else *playery = *blocky-fabs(y(dt, t0));
+        if (!on_platform && *playery < HEIGHT-height(player) && y(dt, t0) < 0 && dy(dt, t0) < 0) *playery += 5;
+        else *playery = *blocky-fabsf(y(dt, t0));
 
         if (on_platform) (*playery)--;
 
@@ -173,7 +173,11 @@ void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int d
 
     // Correct collisions with top and bottom ends of the screen
     if (*playery < 0) *playery = 0;
-    else if (*playery > HEIGHT-(height(player))) *playery = HEIGHT-(height(player));
+    else if (*playery > HEIGHT-(height(player))-bloques[0].h && bloques[0].w == WIDTH) {
+        *playery = HEIGHT-(height(player))-bloques[0].h;
+    } else if (*playery > HEIGHT-(height(player))) {
+        *playery = HEIGHT-(height(player));
+    }
 }
 
 /*
