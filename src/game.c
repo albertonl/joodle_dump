@@ -80,6 +80,7 @@ int main(int argc, char* argv[]) {
 
     long long score = 0;
     bool alive = true;
+    bool restart = false;
     
     int screen_matrix[HEIGHT][WIDTH];
     Bloque bloques[BLOCK_MAXN];
@@ -89,49 +90,82 @@ int main(int argc, char* argv[]) {
     // Use current time as seed for random generator
     srand(time(NULL));
 
-    // Initialize block array to 0
-    for (int i = 0; i < BLOCK_MAXN; i++) {
-        bloques[i].tipo = 0;
-    }
-
-    // Initialize matrix to 0
-    for (int i = 0; i < HEIGHT-1; i++) {
-        for (int j = 0; j < WIDTH; j++) {
-            screen_matrix[i][j] = 0;
-        }
-    }
-    int counter = 0;
-    while (!tigrClosed(screen) && !tigrKeyDown(screen, TK_ESCAPE) && alive) {
-        generatePlatforms(bloques, screen_matrix);
-        drawScreen(backdrop, bloques);
-        t = timeInMilliseconds();
-
-        if (isOnPlatform(player, screen_matrix, playerx, playery) && !isGoingUp(player, t, t0)) {
-            blocky = playery;
-            t0 = t;
+    do {
+        // Initialize block array to 0
+        for (int i = 0; i < BLOCK_MAXN; i++) {
+            bloques[i].tipo = 0;
         }
 
-        // Check if user is touching the bottom of the screen
-        if (!isOnPlatform(player, screen_matrix, playerx, playery) && playery >= HEIGHT-height(player) && blocky < playery) {
-            printf("YOU DIED. Your score: %lld\n", score);
-            alive = false;
-        } else {
-            score += update(screen, player, screen_matrix, t0, t, &blocky, &playerx, &playery, bloques);
+        // Initialize matrix to 0
+        for (int i = 0; i < HEIGHT-1; i++) {
+            for (int j = 0; j < WIDTH; j++) {
+                screen_matrix[i][j] = 0;
+            }
         }
 
-        // Composite the backdrop and sprite onto the screen.
-        tigrBlit(screen, backdrop, 0, 0, 0, 0, WIDTH, HEIGHT);
-        tigrBlitAlpha(screen, player, playerx, playery, 0, 0, width(player),
-                    height(player), 1.0f);
-        
-        tigrPrint(screen, smallFont, 30, 30, tigrRGB(0, 0, 0), "%lld", score);
+        while (!tigrClosed(screen) && !tigrKeyDown(screen, TK_ESCAPE) && alive) {
+            generatePlatforms(bloques, screen_matrix);
+            drawScreen(backdrop, bloques);
+            t = timeInMilliseconds();
 
-        tigrUpdate(screen);
-    }
+            if (isOnPlatform(player, screen_matrix, playerx, playery) && !isGoingUp(player, t, t0)) {
+                blocky = playery;
+                t0 = t;
+            }
+
+            // Check if user is touching the bottom of the screen
+            if (!isOnPlatform(player, screen_matrix, playerx, playery) && playery >= HEIGHT-height(player) && blocky < playery) {
+                printf("YOU DIED. Your score: %lld\n", score);
+                alive = false;
+            } else {
+                score += update(screen, player, screen_matrix, t0, t, &blocky, &playerx, &playery, bloques);
+            }
+
+            // Composite the backdrop and sprite onto the screen.
+            tigrBlit(screen, backdrop, 0, 0, 0, 0, WIDTH, HEIGHT);
+            tigrBlitAlpha(screen, player, playerx, playery, 0, 0, width(player),
+                        height(player), 1.0f);
+            
+            tigrPrint(screen, smallFont, 30, 30, tigrRGB(0, 0, 0), "%lld", score);
+
+            tigrUpdate(screen);
+        }
+
+        // Show death and restart screen
+        while (!tigrClosed(screen) && !alive) {
+            tigrClear(backdrop, tigrRGB(200, 200, 200));
+
+            tigrPrint(screen, bigFont, 30, HEIGHT/2-50, tigrRGB(0, 0, 0), "YOU DIED.");
+            tigrPrint(screen, smallFont, 30, HEIGHT/2+15, tigrRGB(0, 0, 0), "Your score: %lld", score);
+            tigrPrint(screen, smallFont, 30, HEIGHT/2+50, tigrRGB(0, 0, 0), "Restart? [Y/N]");
+
+            if (tigrKeyDown(screen, 'Y')) {
+                // Reset initial values
+                alive = true;
+                restart = true;
+                score = 0;
+                playerx = WIDTH/2;
+                playery = HEIGHT-200.0f;
+                blocky = HEIGHT-60;
+
+                // Quick-reset matrix and block array
+                memset(screen_matrix, 0, HEIGHT*sizeof(screen_matrix[0]));
+                memset(bloques, 0, BLOCK_MAXN*sizeof(bloques[0]));
+            } else if (tigrKeyDown(screen, 'N')) {
+                // Set 'alive' to true to exit loop and quit the program.
+                alive = true;
+                restart = false;
+            }
+
+            tigrUpdate(screen);
+        }
+    } while (restart);
 
     tigrFree(screen);
     tigrFree(player);
     tigrFree(smallFontImage);
+    tigrFree(regularFontImage);
+    tigrFree(bigFontImage);
     return 0;
 }
 
