@@ -37,7 +37,7 @@ typedef struct {
 } Bloque;
 
 // Periodical functions
-void update(Tigr*, Tigr*, int[HEIGHT][WIDTH], int, int, int*, float*, float*, Bloque*);
+int update(Tigr*, Tigr*, int[HEIGHT][WIDTH], int, int, int*, float*, float*, Bloque*);
 void drawScreen(Tigr*, Bloque*);
 void generatePlatforms(Bloque*, int[HEIGHT][WIDTH]);
 void bajarElementosPantalla(int, Bloque*);
@@ -62,6 +62,14 @@ int main(int argc, char* argv[]) {
     Tigr* backdrop = tigrBitmap(WIDTH, HEIGHT);
     Tigr* player = tigrLoadImage("./img/obamium_min.png");
 
+    // Fonts
+    Tigr* smallFontImage = tigrLoadImage("./img/small_font.png");       // Size 20
+    Tigr* regularFontImage = tigrLoadImage("./img/regular_font.png");   // Size 35
+    Tigr* bigFontImage = tigrLoadImage("./img/big_font.png");           // Size 50
+    TigrFont* smallFont = tigrLoadFont(smallFontImage, TCP_1252);
+    TigrFont* regularFont = tigrLoadFont(regularFontImage, TCP_1252);
+    TigrFont* bigFont = tigrLoadFont(bigFontImage, TCP_1252);
+
     if (!player) {
         tigrError(0, "Cannot load obamium_min.png");
     }
@@ -70,6 +78,9 @@ int main(int argc, char* argv[]) {
     int blocky = HEIGHT-60;
     int t, t0;
 
+    long long score = 0;
+    bool alive = true;
+    
     int screen_matrix[HEIGHT][WIDTH];
     Bloque bloques[BLOCK_MAXN];
 
@@ -89,8 +100,8 @@ int main(int argc, char* argv[]) {
             screen_matrix[i][j] = 0;
         }
     }
-
-    while (!tigrClosed(screen) && !tigrKeyDown(screen, TK_ESCAPE)) {
+    int counter = 0;
+    while (!tigrClosed(screen) && !tigrKeyDown(screen, TK_ESCAPE) && alive) {
         generatePlatforms(bloques, screen_matrix);
         drawScreen(backdrop, bloques);
         t = timeInMilliseconds();
@@ -99,29 +110,33 @@ int main(int argc, char* argv[]) {
             blocky = playery;
             t0 = t;
         }
-        
-        if (!isOnPlatform(player, screen_matrix, playerx, playery) && playery >= HEIGHT-height(player) && blocky < playery) {
-            printf("YOU DIED.\n");
-            break;
-        }
 
-        update(screen, player, screen_matrix, t0, t, &blocky, &playerx, &playery, bloques);
+        // Check if user is touching the bottom of the screen
+        if (!isOnPlatform(player, screen_matrix, playerx, playery) && playery >= HEIGHT-height(player) && blocky < playery) {
+            printf("YOU DIED. Your score: %lld\n", score);
+            alive = false;
+        } else {
+            score += update(screen, player, screen_matrix, t0, t, &blocky, &playerx, &playery, bloques);
+        }
 
         // Composite the backdrop and sprite onto the screen.
         tigrBlit(screen, backdrop, 0, 0, 0, 0, WIDTH, HEIGHT);
         tigrBlitAlpha(screen, player, playerx, playery, 0, 0, width(player),
-                      height(player), 1.0f);
+                    height(player), 1.0f);
+        
+        tigrPrint(screen, smallFont, 30, 30, tigrRGB(0, 0, 0), "%lld", score);
 
         tigrUpdate(screen);
     }
 
     tigrFree(screen);
     tigrFree(player);
+    tigrFree(smallFontImage);
     return 0;
 }
 
 /*
-    Procedure: update
+    Function: update
     -----------------
     Updates the game state. It is called every tick.
 
@@ -134,8 +149,10 @@ int main(int argc, char* argv[]) {
     playerx: pointer to the X position (left side) of the sprite.
     playery: pointer to the Y position (upper side) of the sprite.
     bloques: an array with descriptions of all of the blocks' position and type.
+
+    returns: the variation in the game score.
 */
-void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt, int *blocky, float* playerx, float* playery, Bloque* bloques) {
+int update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt, int *blocky, float* playerx, float* playery, Bloque* bloques) {
     bool on_platform;
     float yvariation = 0.0;
 
@@ -175,9 +192,9 @@ void update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int d
     if (*playery < 0) *playery = 0;
     else if (*playery > HEIGHT-(height(player))-bloques[0].h && bloques[0].w == WIDTH) {
         *playery = HEIGHT-(height(player))-bloques[0].h;
-    } else if (*playery > HEIGHT-(height(player))) {
-        *playery = HEIGHT-(height(player));
     }
+
+    return yvariation;
 }
 
 /*
@@ -346,7 +363,7 @@ float dy(int t, int t0) {
 bool isOnPlatform(Tigr* player, int matrix[HEIGHT][WIDTH], float playerx, float playery) {
     int px = (int)playerx, py = (int)min(playery, HEIGHT-height(player)-1);
     if (matrix[py+(height(player))][px+((width(player))/2)] != 0
-        && matrix[py+(height(player))-5][px+((width(player))/2)] == 0)
+        && matrix[py+(height(player))-10][px+((width(player))/2)] == 0)
         return true;
     return false;
 }
@@ -363,7 +380,8 @@ bool isOnPlatform(Tigr* player, int matrix[HEIGHT][WIDTH], float playerx, float 
     returns: true if y(t) > 0 and d(y)/dt > 0, false otherwise.
 */
 bool isGoingUp(Tigr* player, int t, int t0) {
-    return (y(t, t0) > 0 && dy(t, t0) > 0);
+    return dy(t, t0) > 0;
+    // return (y(t, t0) > 0 && dy(t, t0) > 0);
 }
 
 // ---------------------------------- //
