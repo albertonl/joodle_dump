@@ -62,6 +62,14 @@ int main(int argc, char* argv[]) {
     Tigr* backdrop = tigrBitmap(WIDTH, HEIGHT);
     Tigr* player = tigrLoadImage("./img/obamium_min.png");
 
+    // Fonts
+    Tigr* smallFontImage = tigrLoadImage("./img/small_font.png");       // Size 20
+    Tigr* regularFontImage = tigrLoadImage("./img/regular_font.png");   // Size 35
+    Tigr* bigFontImage = tigrLoadImage("./img/big_font.png");           // Size 50
+    TigrFont* smallFont = tigrLoadFont(smallFontImage, TCP_1252);
+    TigrFont* regularFont = tigrLoadFont(regularFontImage, TCP_1252);
+    TigrFont* bigFont = tigrLoadFont(bigFontImage, TCP_1252);
+
     if (!player) {
         tigrError(0, "Cannot load obamium_min.png");
     }
@@ -116,13 +124,14 @@ int main(int argc, char* argv[]) {
         tigrBlitAlpha(screen, player, playerx, playery, 0, 0, width(player),
                     height(player), 1.0f);
         
-        tigrPrint(screen, tfont, 30, 30, tigrRGB(0, 0, 0), "%lld", score);
+        tigrPrint(screen, smallFont, 30, 30, tigrRGB(0, 0, 0), "%lld", score);
 
         tigrUpdate(screen);
     }
 
     tigrFree(screen);
     tigrFree(player);
+    tigrFree(smallFontImage);
     return 0;
 }
 
