@@ -80,7 +80,7 @@ int main(int argc, char* argv[]) {
 
     long long score = 0;
     bool alive = true;
-    bool restart = false;
+    bool restart;
     
     int screen_matrix[HEIGHT][WIDTH];
     Bloque bloques[BLOCK_MAXN];
@@ -91,6 +91,8 @@ int main(int argc, char* argv[]) {
     srand(time(NULL));
 
     do {
+        restart = false;
+
         // Initialize block array to 0
         for (int i = 0; i < BLOCK_MAXN; i++) {
             bloques[i].tipo = 0;
