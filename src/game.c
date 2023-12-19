@@ -31,11 +31,20 @@
 #define height(x) x->h
 #define width(x) x->w
 
+/*
+    Block types:
+        1. Regular solid block
+        2. Single-use platform
+        3. Mobile platform
+    Block direction (only applicable to type 3 blocks):
+        0. Left
+        1. Right
+*/
 typedef struct {
-    int tipo; // 1 -> bloque solido, 2 -> bloque que se rompe, 3 -> bloque movil, etc.
+    int tipo;
     int x, y;
     int w, h;
-    int direction; // 0 for none/left, 1 for right (ONLY FOR TYPE 3 BLOCKS)
+    int direction;
 } Bloque;
 
 // Periodical functions
@@ -59,9 +68,10 @@ float max(float, float);
 int randrange(int, int);
 int timeInMilliseconds();
 void shiftBlockArray(Bloque*, int);
-int randomPlatformType(Bloque*, long long);
+int randomPlatformType(long long);
 Bloque randomPlatform(int, int);
 TPixel getBackgroundColor(long long);
+TPixel getTextColor(long long);
 
 int main(int argc, char* argv[]) {
     Tigr* screen = tigrWindow(WIDTH, HEIGHT, "Joodle Dump", 0);
@@ -141,7 +151,7 @@ int main(int argc, char* argv[]) {
             tigrBlitAlpha(screen, player, playerx, playery, 0, 0, width(player),
                         height(player), 1.0f);
             
-            tigrPrint(screen, smallFont, 30, 30, tigrRGB(0, 0, 0), "%lld", score);
+            tigrPrint(screen, smallFont, 30, 30, getTextColor(score), "%lld", score);
 
             tigrUpdate(screen);
         }
@@ -150,9 +160,9 @@ int main(int argc, char* argv[]) {
         while (!tigrKeyDown(screen, TK_ESCAPE) && !tigrClosed(screen) && !alive) {
             tigrClear(backdrop, tigrRGB(200, 200, 200));
 
-            tigrPrint(screen, bigFont, 30, HEIGHT/2-50, tigrRGB(0, 0, 0), "YOU DIED.");
-            tigrPrint(screen, smallFont, 30, HEIGHT/2+15, tigrRGB(0, 0, 0), "Your score: %lld", score);
-            tigrPrint(screen, smallFont, 30, HEIGHT/2+50, tigrRGB(0, 0, 0), "Restart? [Y/N]");
+            tigrPrint(screen, bigFont, 30, HEIGHT/2-50, getTextColor(score), "YOU DIED.");
+            tigrPrint(screen, smallFont, 30, HEIGHT/2+15, getTextColor(score), "Your score: %lld", score);
+            tigrPrint(screen, smallFont, 30, HEIGHT/2+50, getTextColor(score), "Restart? [Y/N]");
 
             if (tigrKeyDown(screen, 'Y')) {
                 // Reset initial values
@@ -251,22 +261,23 @@ int update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt
 
     backdrop: a Tigr* bitmap covering the size of the screen.
     bloques: an array with descriptions of all of the blocks' position and type.
+    score: the current score.
 */
 void drawScreen(Tigr* backdrop, Bloque* bloques, long long score) {
     tigrClear(backdrop, getBackgroundColor(score));
     TPixel platformColor;
 
     for (int i = 0; i < BLOCK_MAXN; i++) {
-        if (bloques[i].tipo != 0) {
+        if (bloques[i].tipo > 0) {
             switch (bloques[i].tipo) {
-                case 1: // Fixed platform (#7dd181: Mantis Green)
-                    platformColor = tigrRGB(125, 209, 129);
+                case 1: // Fixed platform (#9BDA84: Pistachio)
+                    platformColor = tigrRGB(155, 218, 69);
                     break;
-                case 2: // Single-use platform (#a63d40: Redwood)
-                    platformColor = tigrRGB(166, 61, 64);
+                case 2: // Single-use platform (#D5765A: Burnt Sienna)
+                    platformColor = tigrRGB(213, 118, 90);
                     break;
-                case 3: // Mobile platform (#f7b05b: Earth Yellow)
-                    platformColor = tigrRGB(247, 176, 91);
+                case 3: // Mobile platform (#E9D758: Arylide Yellow)
+                    platformColor = tigrRGB(233, 215, 88);
                     break;
                 default: // Other (#ffffff: White) - for debugging purposes
                     platformColor = tigrRGB(255, 255, 255);
@@ -286,6 +297,7 @@ void drawScreen(Tigr* backdrop, Bloque* bloques, long long score) {
 
     bloques: an array with descriptions of all of the blocks' position and type.
     matrix: a matrix with HEIGHT rows and WIDTH cols representing all the pixels in the screen.
+    score: the current score.
 */
 void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH], long long score) {
     int overflow = 0;
@@ -320,10 +332,10 @@ void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH], long long sco
             } else {
                 // Generate a block 60 pixels above the previous one with 30% chance.
                 if (randrange(0, 10) < 3) {
-                    bloques[idx] = randomPlatform(randomPlatformType(bloques, score), bloques[idx-1].y-60);
+                    bloques[idx] = randomPlatform(randomPlatformType(score), bloques[idx-1].y-60);
                 } else {
                     // Otherwise generate a block 120 pixels above the previous one with 100% chance.
-                    bloques[idx] = randomPlatform(randomPlatformType(bloques, score), bloques[idx-1].y-120);
+                    bloques[idx] = randomPlatform(randomPlatformType(score), bloques[idx-1].y-120);
                 }
             }
         }
@@ -360,6 +372,24 @@ void bajarElementosPantalla(int n, Bloque* bloques) {
     }
 }
 
+/*
+    Procedure: updatePlatforms
+    --------------------------
+    This function updates the state of the platforms in the current tick. It
+    essentially does two different things:
+        1. If movePlatforms is true, the x position of all mobile platforms in
+           the block array will be shifted 1 pixel to the right in the
+           specified direction (unless colliding with a wall).
+        2. If the sprite is standing on a single-use platform, delete it so
+           that it cannot be used again.
+    
+    bloques: an array with descriptions of all of the blocks' position and type.
+    y: the y position of the sprite's lower side, i.e. (player->y + player->h).
+    movePlatforms: if true, all mobile platforms will move 1 pixel towards their
+        specified direction. Only applied after the number of ticks in PLATFORM_MOV_TICKS.
+    onPlatform: boolean indicating if the sprite is in contact with a solid block.
+    goingDown: boolean indicating if the sprite is moving downwards.
+*/
 void updatePlatforms(Bloque* bloques, float y, bool movePlatforms, bool onPlatform, bool goingDown) {
     for (int i = 0; i < BLOCK_MAXN; i++) {
         if (bloques[i].tipo == 2 && onPlatform && goingDown) {
@@ -461,7 +491,6 @@ bool isOnPlatform(Tigr* player, int matrix[HEIGHT][WIDTH], float playerx, float 
 */
 bool isGoingUp(int t, int t0) {
     return dy(t, t0) > 0;
-    // return (y(t, t0) > 0 && dy(t, t0) > 0);
 }
 
 // ---------------------------------- //
@@ -545,16 +574,25 @@ void shiftBlockArray(Bloque* bloques, int n) {
     }
 }
 
-int randomPlatformType(Bloque* bloques, long long score) {
-    int random = randrange(0, 100);
-    int type = 1;
-
-    /*
+/*
+    Function: randomPlatformType
+    ----------------------------
+    Returns a randomized platform type for platform generation, based on the
+    current score.
         - Single-use platforms (type 2) start appearing at score 1500 and have
           a 25% chance of appearing.
-        - Moving platforms (type 3) start appearing at score 3000 and have a
+        - Mobile platforms (type 3) start appearing at score 3000 and have a
           20% chance of appearing.
-    */
+    If none of these conditions are met, the return value defaults to type 1
+    (regular solid block).
+
+    score: the current score.
+
+    returns: a platform type (value between 1 and 3).
+*/
+int randomPlatformType(long long score) {
+    int random = randrange(0, 100);
+    int type = 1;
    
     if (score >= 1500 && random >= 0 && random < 25) type = 2;
     else if (score >= 3000 && random >= 25 && random < 45) type = 3;
@@ -562,6 +600,17 @@ int randomPlatformType(Bloque* bloques, long long score) {
     return type;
 }
 
+/*
+    Function: randomPlatform
+    ------------------------
+    Generates a platform of a given type at a random x-axis position given
+    its y-axis location.
+
+    type: the type of the platform (value between 1 and 3).
+    y: the vertical position of the platform.
+
+    returns: the generated block.
+*/
 Bloque randomPlatform(int type, int y) {
     Bloque generatedBlock;
 
@@ -581,51 +630,80 @@ Bloque randomPlatform(int type, int y) {
     return generatedBlock;
 }
 
+/*
+    Function: getBackgroundColor
+    ----------------------------
+    Returns the background color of the window given the current score. This
+    color begins at a light cyan, and after 6000 points, it shifts to a dark
+    gray by means of a 500-point-long color gradient. Then, it remains dark
+    for 6000 more points, and finally it returns to the light setting with a
+    new gradient.
+
+    Color palette: https://coolors.co/caf0f8-3d3d49-d5765a-e9d758-9bda84
+
+    score: the current score.
+
+    returns: a TPixel object with the RGB values of the background color.
+*/
 TPixel getBackgroundColor(long long score) {
-    score += 5500; // TESTING
     long long mod = score % 13000LL;
     unsigned char red = 0, green = 0, blue = 0;
 
     if (mod < 6000) {
-        // Solid #OACDFF (Vivid Sky Blue)
-        red = 10;
-        green = 205;
-        blue = 255;
+        // Solid #CAF0F8 (Light Cyan)
+
+        red = 202;
+        green = 240;
+        blue = 248;
     } else if (mod <= 6500) {
         // Get clear-to-dark color gradient
-        // Starting color: #0ACDFF (Vivid Sky Blue) -- RGB(10, 205, 255)
-        // Ending color: #35393C (Onyx) -- RGB(53, 57, 60)
-        red = 10 + ((float)(mod - 6000) / 500.0f) * (53 - 10);
-        green = 205 + ((float)(mod - 6000) / 500.0f) * (57 - 205);
-        blue = 255 + ((float)(mod - 6000) / 500.0f) * (60 - 255);
+        // Starting color: #CAF0F8 (Light Cyan) -- RGB(202, 240, 248)
+        // Ending color: #3D3D49 (Onyx) -- RGB(61, 61, 73)
+
+        red = 202 + ((float)(mod - 6000) / 500.0f) * (61 - 202);
+        green = 240 + ((float)(mod - 6000) / 500.0f) * (61 - 240);
+        blue = 248 + ((float)(mod - 6000) / 500.0f) * (73 - 248);
     } else if (mod < 12500) {
-        // Solid #35393C (Onyx)
-        red = 53;
-        green = 57;
-        blue = 60;
+        // Solid #3D3D49 (Onyx)
+
+        red = green = 61;
+        blue = 73;
     } else {
         // Get dark-to-clear color gradient
-        // Starting color: #35393C (Onyx) -- RGB(53, 57, 60)
-        // Ending color: #0ACDFF (Vivid Sky Blue) -- RGB(10, 205, 255)
-        red = 53 + ((float)(mod - 12500) / 500.0f) * (10 - 53);
-        green = 57 + ((float)(mod - 12500) / 500.0f) * (205 - 57);
-        blue = 60 + ((float)(mod - 12500) / 500.0f) * (255 - 60);
+        // Starting color: #3D3D49 (Onyx) -- RGB(61, 61, 73)
+        // Ending color: #CAF0F8 (Light Cyan) -- RGB(202, 240, 248)
+
+        red = 61 + ((float)(mod - 12500) / 500.0f) * (202 - 61);
+        green = 61 + ((float)(mod - 12500) / 500.0f) * (240 - 61);
+        blue = 73 + ((float)(mod - 12500) / 500.0f) * (248 - 73);
     }
 
     return tigrRGB(red, green, blue);
 }
 
+/*
+    Function: getTextColor
+    ----------------------
+    Returns the RGB color for optimal contrast between the text and the
+    background. It applies the concept of relative luminance to determine
+    the brightness of the background and thus choose a lighter or darker
+    color accordingly.
+
+    Adapted from: https://stackoverflow.com/a/1855903 (CC BY-SA 4.0)
+    See also: https://www.w3.org/TR/AERT/#color-contrast
+
+    score: the current score.
+
+    returns: a TPixel object with the RGB values of the text color.
+*/
 TPixel getTextColor(long long score) {
     TPixel bgColor = getBackgroundColor(score);
     unsigned char color;
 
     double luminance = (0.299 * bgColor.r + 0.587 * bgColor.g + 0.114 * bgColor.b) / 255;
 
-    if (luminance > 0.4) color = 0; // Black
+    if (luminance > 0.5) color = 0; // Black
     else color = 255;               // White
 
     return tigrRGB(color, color, color);
-
-    // onyx luminance: 0.22018
-    // skyblue luminance: 0.59763
 }
