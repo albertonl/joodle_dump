@@ -40,7 +40,7 @@ typedef struct {
 
 // Periodical functions
 int update(Tigr*, Tigr*, int[HEIGHT][WIDTH], int, int, int*, float*, float*, Bloque*);
-void drawScreen(Tigr*, Bloque*);
+void drawScreen(Tigr*, Bloque*, long long);
 void generatePlatforms(Bloque*, int[HEIGHT][WIDTH], long long);
 void bajarElementosPantalla(int, Bloque*);
 void updatePlatforms(Bloque*, float, bool, bool, bool);
@@ -61,6 +61,7 @@ int timeInMilliseconds();
 void shiftBlockArray(Bloque*, int);
 int randomPlatformType(Bloque*, long long);
 Bloque randomPlatform(int, int);
+TPixel getBackgroundColor(long long);
 
 int main(int argc, char* argv[]) {
     Tigr* screen = tigrWindow(WIDTH, HEIGHT, "Joodle Dump", 0);
@@ -113,7 +114,7 @@ int main(int argc, char* argv[]) {
 
         while (!tigrClosed(screen) && !tigrKeyDown(screen, TK_ESCAPE) && alive) {
             generatePlatforms(bloques, screen_matrix, score);
-            drawScreen(backdrop, bloques);
+            drawScreen(backdrop, bloques, score);
             t = timeInMilliseconds();
 
             updatePlatforms(bloques, playery+height(player), ++elapsedTicks >= PLATFORM_MOV_TICKS,
@@ -162,10 +163,6 @@ int main(int argc, char* argv[]) {
                 playery = HEIGHT-200.0f;
                 blocky = HEIGHT-60;
                 elapsedTicks = 0;
-
-                // Quick-reset matrix and block array
-                memset(screen_matrix, 0, HEIGHT*sizeof(screen_matrix[0]));
-                memset(bloques, 0, BLOCK_MAXN*sizeof(bloques[0]));
             } else if (tigrKeyDown(screen, 'N')) {
                 // Set 'alive' to true to exit loop and quit the program.
                 alive = true;
@@ -220,34 +217,6 @@ int update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt
 
     on_platform = isOnPlatform(player, matrix, *playerx, *playery);
 
-    // // Update block array (platform movements, delete single-use platforms)
-    // for (int i = 0; i < BLOCK_MAXN; i++) {
-    //     if (bloques[i].tipo == 3) {
-    //         if (bloques[i].direction == 0) { // Move to the left
-    //             bloques[i].x -= 1;
-                
-    //             if (bloques[i].x <= 0) { // Reached wall, change direction
-    //                 bloques[i].x = 0;
-    //                 bloques[i].direction = 1;
-    //             }
-    //         } else { // Move to the right
-    //             bloques[i].x += 2;
-
-    //             if (bloques[i].x >= WIDTH-PLATFORM_WIDTH) {
-    //                 bloques[i].x = WIDTH-PLATFORM_WIDTH;
-    //                 bloques[i].direction = 0;
-    //             }
-    //         }
-    //     } else if (on_platform && bloques[i].tipo == 2) {
-    //         // Check if the sprite is standing on top of this platform.
-    //         if (*blocky + height(player) >= bloques[i].y &&
-    //             *blocky + height(player) <= bloques[i].y + bloques[i].h) {
-    //                 // If so, clear the platform.
-    //                 bloques[i].tipo = -1;
-    //         }
-    //     }
-    // }
-
     if (*playery >= *blocky && !on_platform) {
         *playery += 5;
     } else {
@@ -283,24 +252,24 @@ int update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt
     backdrop: a Tigr* bitmap covering the size of the screen.
     bloques: an array with descriptions of all of the blocks' position and type.
 */
-void drawScreen(Tigr* backdrop, Bloque* bloques) {
-    tigrClear(backdrop, tigrRGB(255, 255, 255));
+void drawScreen(Tigr* backdrop, Bloque* bloques, long long score) {
+    tigrClear(backdrop, getBackgroundColor(score));
     TPixel platformColor;
 
     for (int i = 0; i < BLOCK_MAXN; i++) {
         if (bloques[i].tipo != 0) {
             switch (bloques[i].tipo) {
-                case 1:
-                    platformColor = tigrRGB(125, 209, 129); // #7dd181 (Mantis Green)
+                case 1: // Fixed platform (#7dd181: Mantis Green)
+                    platformColor = tigrRGB(125, 209, 129);
                     break;
-                case 2:
-                    platformColor = tigrRGB(166, 61, 64); // #a63d40 (Redwood)
+                case 2: // Single-use platform (#a63d40: Redwood)
+                    platformColor = tigrRGB(166, 61, 64);
                     break;
-                case 3:
-                    platformColor = tigrRGB(247, 176, 91); // #f7b05b (Earth Yellow)
+                case 3: // Mobile platform (#f7b05b: Earth Yellow)
+                    platformColor = tigrRGB(247, 176, 91);
                     break;
-                default:
-                    platformColor = tigrRGB(255, 255, 255); // #ffffff (White)
+                default: // Other (#ffffff: White) - for debugging purposes
+                    platformColor = tigrRGB(255, 255, 255);
             }
 
             tigrFill(backdrop, bloques[i].x, bloques[i].y, bloques[i].w, bloques[i].h, platformColor);
@@ -579,7 +548,6 @@ void shiftBlockArray(Bloque* bloques, int n) {
 int randomPlatformType(Bloque* bloques, long long score) {
     int random = randrange(0, 100);
     int type = 1;
-    score = 16000;
 
     /*
         - Single-use platforms (type 2) start appearing at score 1500 and have
@@ -611,4 +579,53 @@ Bloque randomPlatform(int type, int y) {
     else generatedBlock.direction = 1;
 
     return generatedBlock;
+}
+
+TPixel getBackgroundColor(long long score) {
+    score += 5500; // TESTING
+    long long mod = score % 13000LL;
+    unsigned char red = 0, green = 0, blue = 0;
+
+    if (mod < 6000) {
+        // Solid #OACDFF (Vivid Sky Blue)
+        red = 10;
+        green = 205;
+        blue = 255;
+    } else if (mod <= 6500) {
+        // Get clear-to-dark color gradient
+        // Starting color: #0ACDFF (Vivid Sky Blue) -- RGB(10, 205, 255)
+        // Ending color: #35393C (Onyx) -- RGB(53, 57, 60)
+        red = 10 + ((float)(mod - 6000) / 500.0f) * (53 - 10);
+        green = 205 + ((float)(mod - 6000) / 500.0f) * (57 - 205);
+        blue = 255 + ((float)(mod - 6000) / 500.0f) * (60 - 255);
+    } else if (mod < 12500) {
+        // Solid #35393C (Onyx)
+        red = 53;
+        green = 57;
+        blue = 60;
+    } else {
+        // Get dark-to-clear color gradient
+        // Starting color: #35393C (Onyx) -- RGB(53, 57, 60)
+        // Ending color: #0ACDFF (Vivid Sky Blue) -- RGB(10, 205, 255)
+        red = 53 + ((float)(mod - 12500) / 500.0f) * (10 - 53);
+        green = 57 + ((float)(mod - 12500) / 500.0f) * (205 - 57);
+        blue = 60 + ((float)(mod - 12500) / 500.0f) * (255 - 60);
+    }
+
+    return tigrRGB(red, green, blue);
+}
+
+TPixel getTextColor(long long score) {
+    TPixel bgColor = getBackgroundColor(score);
+    unsigned char color;
+
+    double luminance = (0.299 * bgColor.r + 0.587 * bgColor.g + 0.114 * bgColor.b) / 255;
+
+    if (luminance > 0.4) color = 0; // Black
+    else color = 255;               // White
+
+    return tigrRGB(color, color, color);
+
+    // onyx luminance: 0.22018
+    // skyblue luminance: 0.59763
 }
