@@ -26,6 +26,7 @@
 #define PLATFORM_WIDTH 70
 #define PLATFORM_HEIGHT 25
 #define SCROLL_SPEED 20
+#define PLATFORM_MOV_TICKS 2
 
 #define height(x) x->h
 #define width(x) x->w
@@ -34,13 +35,15 @@ typedef struct {
     int tipo; // 1 -> bloque solido, 2 -> bloque que se rompe, 3 -> bloque movil, etc.
     int x, y;
     int w, h;
+    int direction; // 0 for none/left, 1 for right (ONLY FOR TYPE 3 BLOCKS)
 } Bloque;
 
 // Periodical functions
 int update(Tigr*, Tigr*, int[HEIGHT][WIDTH], int, int, int*, float*, float*, Bloque*);
 void drawScreen(Tigr*, Bloque*);
-void generatePlatforms(Bloque*, int[HEIGHT][WIDTH]);
+void generatePlatforms(Bloque*, int[HEIGHT][WIDTH], long long);
 void bajarElementosPantalla(int, Bloque*);
+void updatePlatforms(Bloque*, float, bool, bool, bool);
 
 // Movement functions
 float y(int, int);
@@ -48,7 +51,7 @@ float dy(int, int);
 
 // State checkers
 bool isOnPlatform(Tigr*, int[HEIGHT][WIDTH], float, float);
-bool isGoingUp(Tigr*, int, int);
+bool isGoingUp(int, int);
 
 // Utilities
 float min(float, float);
@@ -56,6 +59,8 @@ float max(float, float);
 int randrange(int, int);
 int timeInMilliseconds();
 void shiftBlockArray(Bloque*, int);
+int randomPlatformType(Bloque*, long long);
+Bloque randomPlatform(int, int);
 
 int main(int argc, char* argv[]) {
     Tigr* screen = tigrWindow(WIDTH, HEIGHT, "Joodle Dump", 0);
@@ -76,6 +81,7 @@ int main(int argc, char* argv[]) {
 
     float playerx = WIDTH/2, playery = HEIGHT-200.0f;
     int blocky = HEIGHT-60;
+    int elapsedTicks = 0;
     int t, t0;
 
     long long score = 0;
@@ -106,11 +112,17 @@ int main(int argc, char* argv[]) {
         }
 
         while (!tigrClosed(screen) && !tigrKeyDown(screen, TK_ESCAPE) && alive) {
-            generatePlatforms(bloques, screen_matrix);
+            generatePlatforms(bloques, screen_matrix, score);
             drawScreen(backdrop, bloques);
             t = timeInMilliseconds();
 
-            if (isOnPlatform(player, screen_matrix, playerx, playery) && !isGoingUp(player, t, t0)) {
+            updatePlatforms(bloques, playery+height(player), ++elapsedTicks >= PLATFORM_MOV_TICKS,
+                isOnPlatform(player, screen_matrix, playerx, playery), !isGoingUp(t, t0));
+
+            // Reset elapsedTicks to 0 after every PLATFORM_MOV_TICKS.
+            if (elapsedTicks >= PLATFORM_MOV_TICKS) elapsedTicks = 0;
+
+            if (isOnPlatform(player, screen_matrix, playerx, playery) && !isGoingUp(t, t0)) {
                 blocky = playery;
                 t0 = t;
             }
@@ -134,7 +146,7 @@ int main(int argc, char* argv[]) {
         }
 
         // Show death and restart screen
-        while (!tigrClosed(screen) && !alive) {
+        while (!tigrKeyDown(screen, TK_ESCAPE) && !tigrClosed(screen) && !alive) {
             tigrClear(backdrop, tigrRGB(200, 200, 200));
 
             tigrPrint(screen, bigFont, 30, HEIGHT/2-50, tigrRGB(0, 0, 0), "YOU DIED.");
@@ -149,6 +161,7 @@ int main(int argc, char* argv[]) {
                 playerx = WIDTH/2;
                 playery = HEIGHT-200.0f;
                 blocky = HEIGHT-60;
+                elapsedTicks = 0;
 
                 // Quick-reset matrix and block array
                 memset(screen_matrix, 0, HEIGHT*sizeof(screen_matrix[0]));
@@ -207,6 +220,34 @@ int update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt
 
     on_platform = isOnPlatform(player, matrix, *playerx, *playery);
 
+    // // Update block array (platform movements, delete single-use platforms)
+    // for (int i = 0; i < BLOCK_MAXN; i++) {
+    //     if (bloques[i].tipo == 3) {
+    //         if (bloques[i].direction == 0) { // Move to the left
+    //             bloques[i].x -= 1;
+                
+    //             if (bloques[i].x <= 0) { // Reached wall, change direction
+    //                 bloques[i].x = 0;
+    //                 bloques[i].direction = 1;
+    //             }
+    //         } else { // Move to the right
+    //             bloques[i].x += 2;
+
+    //             if (bloques[i].x >= WIDTH-PLATFORM_WIDTH) {
+    //                 bloques[i].x = WIDTH-PLATFORM_WIDTH;
+    //                 bloques[i].direction = 0;
+    //             }
+    //         }
+    //     } else if (on_platform && bloques[i].tipo == 2) {
+    //         // Check if the sprite is standing on top of this platform.
+    //         if (*blocky + height(player) >= bloques[i].y &&
+    //             *blocky + height(player) <= bloques[i].y + bloques[i].h) {
+    //                 // If so, clear the platform.
+    //                 bloques[i].tipo = -1;
+    //         }
+    //     }
+    // }
+
     if (*playery >= *blocky && !on_platform) {
         *playery += 5;
     } else {
@@ -215,7 +256,7 @@ int update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt
 
         if (on_platform) (*playery)--;
 
-        if(*playery<HEIGHT/2 && isGoingUp(player, dt, t0)){
+        if(*playery<HEIGHT/2 && isGoingUp(dt, t0)){
             yvariation = SCROLL_SPEED*dy(dt, t0);
 
             bajarElementosPantalla(yvariation, bloques);
@@ -244,10 +285,25 @@ int update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt
 */
 void drawScreen(Tigr* backdrop, Bloque* bloques) {
     tigrClear(backdrop, tigrRGB(255, 255, 255));
+    TPixel platformColor;
 
     for (int i = 0; i < BLOCK_MAXN; i++) {
-        if (bloques[i].tipo == 1) {
-            tigrFill(backdrop, bloques[i].x, bloques[i].y, bloques[i].w, bloques[i].h, tigrRGB(0, 255, 0));
+        if (bloques[i].tipo != 0) {
+            switch (bloques[i].tipo) {
+                case 1:
+                    platformColor = tigrRGB(125, 209, 129); // #7dd181 (Mantis Green)
+                    break;
+                case 2:
+                    platformColor = tigrRGB(166, 61, 64); // #a63d40 (Redwood)
+                    break;
+                case 3:
+                    platformColor = tigrRGB(247, 176, 91); // #f7b05b (Earth Yellow)
+                    break;
+                default:
+                    platformColor = tigrRGB(255, 255, 255); // #ffffff (White)
+            }
+
+            tigrFill(backdrop, bloques[i].x, bloques[i].y, bloques[i].w, bloques[i].h, platformColor);
         }
     }
 }
@@ -262,8 +318,7 @@ void drawScreen(Tigr* backdrop, Bloque* bloques) {
     bloques: an array with descriptions of all of the blocks' position and type.
     matrix: a matrix with HEIGHT rows and WIDTH cols representing all the pixels in the screen.
 */
-void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
-    Bloque generated_block;
+void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH], long long score) {
     int overflow = 0;
 
     // Get the number of platforms that overflow the height of the screen.
@@ -277,9 +332,7 @@ void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
     // Quick-reset matrix to 0.
     memset(matrix, 0, HEIGHT*sizeof(matrix[0]));
 
-    // Generate new blocks on the right.
-    generated_block.w = PLATFORM_WIDTH;
-    generated_block.h = PLATFORM_HEIGHT;
+    // Generate new blocks
     for (int idx = 0; idx < BLOCK_MAXN; idx++) {
         if (bloques[idx].tipo == 0) {
             if (idx == 0) {
@@ -298,23 +351,17 @@ void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
             } else {
                 // Generate a block 60 pixels above the previous one with 30% chance.
                 if (randrange(0, 10) < 3) {
-                    generated_block.tipo = 1;
-                    generated_block.y = bloques[idx-1].y - 60;
-                    generated_block.x = randrange(0, WIDTH-PLATFORM_WIDTH);
+                    bloques[idx] = randomPlatform(randomPlatformType(bloques, score), bloques[idx-1].y-60);
                 } else {
                     // Otherwise generate a block 120 pixels above the previous one with 100% chance.
-                    generated_block.tipo = 1;
-                    generated_block.y = bloques[idx-1].y - 120;
-                    generated_block.x = randrange(0, WIDTH-PLATFORM_WIDTH);
+                    bloques[idx] = randomPlatform(randomPlatformType(bloques, score), bloques[idx-1].y-120);
                 }
-
-                bloques[idx] = generated_block;
             }
         }
 
         for (int i = max(bloques[idx].y, 0); i < min(bloques[idx].y + bloques[idx].h, HEIGHT); i++) {
             for (int j = 0; j < bloques[idx].w; j++) {
-                matrix[i][bloques[idx].x + j] = bloques[idx].tipo;
+                if (bloques[idx].tipo > 0) matrix[i][bloques[idx].x + j] = bloques[idx].tipo;
             }
         }
     }
@@ -340,6 +387,35 @@ void bajarElementosPantalla(int n, Bloque* bloques) {
             }
         } else {
             bloques[i].y += n;
+        }
+    }
+}
+
+void updatePlatforms(Bloque* bloques, float y, bool movePlatforms, bool onPlatform, bool goingDown) {
+    for (int i = 0; i < BLOCK_MAXN; i++) {
+        if (bloques[i].tipo == 2 && onPlatform && goingDown) {
+            // Check if the sprite is standing on top of a single-use platform.
+            if (y >= bloques[i].y && y <= bloques[i].y + bloques[i].h) {
+                // If so, then delete it. We use an arbitrary value of -1
+                // to avoid generating new platforms in this position.
+                bloques[i].tipo = -1;
+            }
+        } else if (bloques[i].tipo == 3 && movePlatforms) {
+            if (bloques[i].direction == 0) { // Move to the left
+                bloques[i].x -= 1;
+                
+                if (bloques[i].x <= 0) { // Reached wall, change direction
+                    bloques[i].x = 0;
+                    bloques[i].direction = 1;
+                }
+            } else { // Move to the right
+                bloques[i].x += 1;
+
+                if (bloques[i].x >= WIDTH-PLATFORM_WIDTH) {
+                    bloques[i].x = WIDTH-PLATFORM_WIDTH;
+                    bloques[i].direction = 0;
+                }
+            }
         }
     }
 }
@@ -409,13 +485,12 @@ bool isOnPlatform(Tigr* player, int matrix[HEIGHT][WIDTH], float playerx, float 
     -------------------
     Returns true if the sprite is moving upward, i.e. the velocity is positive.
 
-    player: the Tigr* variable representing the moveable sprite.
     t: the current timestamp, in milliseconds.
     t0: the timestamp of the beginning of the oscillation, in milliseconds.
 
     returns: true if y(t) > 0 and d(y)/dt > 0, false otherwise.
 */
-bool isGoingUp(Tigr* player, int t, int t0) {
+bool isGoingUp(int t, int t0) {
     return dy(t, t0) > 0;
     // return (y(t, t0) > 0 && dy(t, t0) > 0);
 }
@@ -499,4 +574,41 @@ void shiftBlockArray(Bloque* bloques, int n) {
             bloques[i+n].tipo = 0;
         }
     }
+}
+
+int randomPlatformType(Bloque* bloques, long long score) {
+    int random = randrange(0, 100);
+    int type = 1;
+    score = 16000;
+
+    /*
+        - Single-use platforms (type 2) start appearing at score 1500 and have
+          a 25% chance of appearing.
+        - Moving platforms (type 3) start appearing at score 3000 and have a
+          20% chance of appearing.
+    */
+   
+    if (score >= 1500 && random >= 0 && random < 25) type = 2;
+    else if (score >= 3000 && random >= 25 && random < 45) type = 3;
+    
+    return type;
+}
+
+Bloque randomPlatform(int type, int y) {
+    Bloque generatedBlock;
+
+    // Set platform type, width and height
+    generatedBlock.tipo = type;
+    generatedBlock.w = PLATFORM_WIDTH;
+    generatedBlock.h = PLATFORM_HEIGHT;
+
+    // Set desired y and random x
+    generatedBlock.y = y;
+    generatedBlock.x = randrange(0, WIDTH-PLATFORM_WIDTH);
+
+    // Set random direction (only if type = 2)
+    if (type == 2 && randrange(0, 10) < 5) generatedBlock.direction = 0;
+    else generatedBlock.direction = 1;
+
+    return generatedBlock;
 }
