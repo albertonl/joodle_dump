@@ -14,7 +14,6 @@
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
-#include <limits.h>
 #include <time.h>
 #include <sys/time.h>
 #include "tigr.h"
@@ -442,17 +441,7 @@ void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH], long long sco
 */
 void bajarElementosPantalla(int n, Bloque* bloques) {
     for (int i = 0; i < BLOCK_MAXN; i++) {
-        // Check for potential overflow or underflow before updating y
-        if ((n > 0 && INT_MAX - bloques[i].y < n) || (n < 0 && INT_MIN - bloques[i].y > n)) {
-            // Handle overflow or underflow case appropriately
-            if (n > 0) {
-                bloques[i].y = INT_MAX;
-            } else {
-                bloques[i].y = INT_MIN;
-            }
-        } else {
-            bloques[i].y += n;
-        }
+        bloques[i].y += n;
     }
 }
 
