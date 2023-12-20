@@ -28,6 +28,7 @@
 #define PLATFORM_HEIGHT 25
 #define SCROLL_SPEED 20
 #define PLATFORM_MOV_TICKS 2
+#define TEXT_FADEOUT 2
 
 #define height(x) x->h
 #define width(x) x->w
@@ -81,7 +82,7 @@ long long readScore();
 int main(int argc, char* argv[]) {
     Tigr* screen = tigrWindow(WIDTH, HEIGHT, "Joodle Dump", 0);
     Tigr* backdrop = tigrBitmap(WIDTH, HEIGHT);
-    Tigr* player = tigrLoadImage("./img/obamium_min.png");
+    Tigr* player = tigrLoadImage("./img/amongus_min.png");
 
     // Fonts
     Tigr* smallFontImage = tigrLoadImage("./img/small_font.png");       // Size 20
@@ -91,14 +92,29 @@ int main(int argc, char* argv[]) {
     TigrFont* regularFont = tigrLoadFont(regularFontImage, TCP_1252);
     TigrFont* bigFont = tigrLoadFont(bigFontImage, TCP_1252);
 
-    if (!player) {
-        tigrError(0, "Cannot load obamium_min.png");
+    if (!smallFontImage || !regularFontImage || !bigFontImage) {
+        tigrError(0, "Could not load font. Check that no files are missing.\n");
     }
+
+    // Paths to character images
+    const char* costumes[3] = {
+        "./img/amongus_min.png",
+        "./img/obamium_min.png",
+        "./img/chayanne_min.png"
+    };
+
+    // Change-of-character messages
+    const char* changeCostumes[3] = {
+        "Sussy",
+        "Obamium",
+        "You've been CHAYANNED!"
+    };
 
     float playerx = WIDTH/2, playery = HEIGHT-200.0f;
     int blocky = HEIGHT-60;
     int elapsedTicks = 0;
-    int t, t0;
+    int t, t0, print_t0;
+    int currentCostume = 0;
 
     long long score = 0, highScore = readScore();
     bool alive = true;
@@ -107,10 +123,14 @@ int main(int argc, char* argv[]) {
     int screen_matrix[HEIGHT][WIDTH];
     Bloque bloques[BLOCK_MAXN];
 
-    t = t0 = timeInMilliseconds();
+    t = t0 = print_t0 = timeInMilliseconds();
 
     // Use current time as seed for random generator
     srand(time(NULL));
+
+    // Set default character
+    player = tigrLoadImage(costumes[0]);
+    if (!player) tigrError(0, "Cannot load character image.\n");
 
     do {
         restart = false;
@@ -143,13 +163,26 @@ int main(int argc, char* argv[]) {
                 t0 = t;
             }
 
-            // Handle pause keyboard shortcut [P/Space]
+            // Handle keyboard shortcuts
             if (tigrKeyDown(screen, 'P')) {
                 tigrPrint(screen, smallFont, 30, HEIGHT-50, getTextColor(score), "Paused. Press P to resume.");
                 while (tigrKeyHeld(screen, 'P'))
                     tigrUpdate(screen);
                 while (!tigrKeyDown(screen, 'P'))
                     tigrUpdate(screen);
+            } else if (tigrKeyDown(screen, '1')) {
+                // Redundancy here is necessary to improve efficiency
+                currentCostume = 0;
+                player = tigrLoadImage(costumes[currentCostume]);
+                print_t0 = t + TEXT_FADEOUT * 1000;
+            } else if (tigrKeyDown(screen, '2')) {
+                currentCostume = 1;
+                player = tigrLoadImage(costumes[currentCostume]);
+                print_t0 = t + TEXT_FADEOUT * 1000;
+            } else if(tigrKeyDown(screen, '3')) {
+                currentCostume = 2;
+                player = tigrLoadImage(costumes[currentCostume]);
+                print_t0 = t + TEXT_FADEOUT * 1000;
             }
 
             // Check if user is touching the bottom of the screen
@@ -170,6 +203,18 @@ int main(int argc, char* argv[]) {
             
             tigrPrint(screen, smallFont, 30, 30, getTextColor(score), "%lld %s",
                 score, (highScore == score && highScore > 0) ? "NEW HIGH SCORE!" : "");
+            
+            // Print temporary change-of-costume messages
+            if (print_t0 > t) {
+                // printf("current costume: %d\n", currentCostume);
+                if (currentCostume == 0) {
+                    tigrPrint(screen, smallFont, 30, 75, getTextColor(score), "Sussy");
+                } else if (currentCostume == 1) {
+                    tigrPrint(screen, smallFont, 30, 75, getTextColor(score), "Obamium");
+                } else if (currentCostume == 2) {
+                    tigrPrint(screen, smallFont, 30, 75, getTextColor(score), "You've been CHAYANNED!");
+                }
+            }
 
             tigrUpdate(screen);
         }
