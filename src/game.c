@@ -14,11 +14,11 @@
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
-#include <limits.h>
 #include <time.h>
 #include <sys/time.h>
 #include "tigr.h"
 
+#define DEBUG false
 #define WIDTH 480
 #define HEIGHT 640
 #define BLOCK_MAXN 10
@@ -26,21 +26,34 @@
 #define PLATFORM_WIDTH 70
 #define PLATFORM_HEIGHT 25
 #define SCROLL_SPEED 20
+#define PLATFORM_MOV_TICKS 2
+#define TEXT_FADEOUT 2
 
 #define height(x) x->h
 #define width(x) x->w
 
+/*
+    Block types:
+        1. Regular solid block
+        2. Single-use platform
+        3. Mobile platform
+    Block direction (only applicable to type 3 blocks):
+        0. Left
+        1. Right
+*/
 typedef struct {
-    int tipo; // 1 -> bloque solido, 2 -> bloque que se rompe, 3 -> bloque movil, etc.
+    int tipo;
     int x, y;
     int w, h;
+    int direction;
 } Bloque;
 
 // Periodical functions
 int update(Tigr*, Tigr*, int[HEIGHT][WIDTH], int, int, int*, float*, float*, Bloque*);
-void drawScreen(Tigr*, Bloque*);
-void generatePlatforms(Bloque*, int[HEIGHT][WIDTH]);
+void drawScreen(Tigr*, Bloque*, long long);
+void generatePlatforms(Bloque*, int[HEIGHT][WIDTH], long long);
 void bajarElementosPantalla(int, Bloque*);
+void updatePlatforms(Bloque*, float, bool, bool, bool);
 
 // Movement functions
 float y(int, int);
@@ -48,7 +61,7 @@ float dy(int, int);
 
 // State checkers
 bool isOnPlatform(Tigr*, int[HEIGHT][WIDTH], float, float);
-bool isGoingUp(Tigr*, int, int);
+bool isGoingUp(int, int);
 
 // Utilities
 float min(float, float);
@@ -56,11 +69,19 @@ float max(float, float);
 int randrange(int, int);
 int timeInMilliseconds();
 void shiftBlockArray(Bloque*, int);
+int randomPlatformType(long long);
+Bloque randomPlatform(int, int);
+TPixel getBackgroundColor(long long);
+TPixel getTextColor(long long);
+
+// File handling
+void writeScore(long long);
+long long readScore();
 
 int main(int argc, char* argv[]) {
     Tigr* screen = tigrWindow(WIDTH, HEIGHT, "Joodle Dump", 0);
     Tigr* backdrop = tigrBitmap(WIDTH, HEIGHT);
-    Tigr* player = tigrLoadImage("./img/obamium_min.png");
+    Tigr* player = tigrLoadImage("./img/amongus_min.png");
 
     // Fonts
     Tigr* smallFontImage = tigrLoadImage("./img/small_font.png");       // Size 20
@@ -70,25 +91,45 @@ int main(int argc, char* argv[]) {
     TigrFont* regularFont = tigrLoadFont(regularFontImage, TCP_1252);
     TigrFont* bigFont = tigrLoadFont(bigFontImage, TCP_1252);
 
-    if (!player) {
-        tigrError(0, "Cannot load obamium_min.png");
+    if (!smallFontImage || !regularFontImage || !bigFontImage) {
+        tigrError(0, "Could not load font. Check that no files are missing.\n");
     }
+
+    // Paths to character images
+    const char* costumes[3] = {
+        "./img/amongus_min.png",
+        "./img/obamium_min.png",
+        "./img/chayanne_min.png"
+    };
+
+    // Change-of-character messages
+    const char* changeCostumes[3] = {
+        "Sussy",
+        "Obamium",
+        "You've been CHAYANNED!"
+    };
 
     float playerx = WIDTH/2, playery = HEIGHT-200.0f;
     int blocky = HEIGHT-60;
-    int t, t0;
+    int elapsedTicks = 0;
+    int t, t0, print_t0;
+    int currentCostume = 0;
 
-    long long score = 0;
+    long long score = 0, highScore = readScore();
     bool alive = true;
     bool restart;
-    
+
     int screen_matrix[HEIGHT][WIDTH];
     Bloque bloques[BLOCK_MAXN];
 
-    t = t0 = timeInMilliseconds();
+    t = t0 = print_t0 = timeInMilliseconds();
 
     // Use current time as seed for random generator
     srand(time(NULL));
+
+    // Set default character
+    player = tigrLoadImage(costumes[0]);
+    if (!player) tigrError(0, "Cannot load character image.\n");
 
     do {
         restart = false;
@@ -106,21 +147,52 @@ int main(int argc, char* argv[]) {
         }
 
         while (!tigrClosed(screen) && !tigrKeyDown(screen, TK_ESCAPE) && alive) {
-            generatePlatforms(bloques, screen_matrix);
-            drawScreen(backdrop, bloques);
+            generatePlatforms(bloques, screen_matrix, score);
+            drawScreen(backdrop, bloques, score);
             t = timeInMilliseconds();
 
-            if (isOnPlatform(player, screen_matrix, playerx, playery) && !isGoingUp(player, t, t0)) {
+            updatePlatforms(bloques, playery+height(player), ++elapsedTicks >= PLATFORM_MOV_TICKS,
+                isOnPlatform(player, screen_matrix, playerx, playery), !isGoingUp(t, t0));
+
+            // Reset elapsedTicks to 0 after every PLATFORM_MOV_TICKS.
+            if (elapsedTicks >= PLATFORM_MOV_TICKS) elapsedTicks = 0;
+
+            if (isOnPlatform(player, screen_matrix, playerx, playery) && !isGoingUp(t, t0)) {
                 blocky = playery;
                 t0 = t;
             }
 
+            // Handle keyboard shortcuts
+            if (tigrKeyDown(screen, 'P')) {
+                tigrPrint(screen, smallFont, 30, HEIGHT-50, getTextColor(score), "Paused. Press P to resume.");
+                while (tigrKeyHeld(screen, 'P'))
+                    tigrUpdate(screen);
+                while (!tigrKeyDown(screen, 'P'))
+                    tigrUpdate(screen);
+            } else if (tigrKeyDown(screen, '1')) {
+                // Redundancy here is necessary to improve efficiency
+                currentCostume = 0;
+                player = tigrLoadImage(costumes[currentCostume]);
+                print_t0 = t + TEXT_FADEOUT * 1000;
+            } else if (tigrKeyDown(screen, '2')) {
+                currentCostume = 1;
+                player = tigrLoadImage(costumes[currentCostume]);
+                print_t0 = t + TEXT_FADEOUT * 1000;
+            } else if(tigrKeyDown(screen, '3')) {
+                currentCostume = 2;
+                player = tigrLoadImage(costumes[currentCostume]);
+                print_t0 = t + TEXT_FADEOUT * 1000;
+            }
+
             // Check if user is touching the bottom of the screen
             if (!isOnPlatform(player, screen_matrix, playerx, playery) && playery >= HEIGHT-height(player) && blocky < playery) {
-                printf("YOU DIED. Your score: %lld\n", score);
+                if (DEBUG) printf("YOU DIED. Your score: %lld\n", score);
                 alive = false;
             } else {
                 score += update(screen, player, screen_matrix, t0, t, &blocky, &playerx, &playery, bloques);
+
+                // Save high score
+                if (highScore > 0 && score > highScore) highScore = score;
             }
 
             // Composite the backdrop and sprite onto the screen.
@@ -128,20 +200,54 @@ int main(int argc, char* argv[]) {
             tigrBlitAlpha(screen, player, playerx, playery, 0, 0, width(player),
                         height(player), 1.0f);
             
-            tigrPrint(screen, smallFont, 30, 30, tigrRGB(0, 0, 0), "%lld", score);
+            tigrPrint(screen, smallFont, 30, 30, getTextColor(score), "%lld %s",
+                score, (highScore == score && highScore > 0) ? "NEW HIGH SCORE!" : "");
+            
+            // Print temporary change-of-costume messages
+            if (print_t0 > t) {
+                // printf("current costume: %d\n", currentCostume);
+                if (currentCostume == 0) {
+                    tigrPrint(screen, smallFont, 30, 75, getTextColor(score), "Sussy");
+                } else if (currentCostume == 1) {
+                    tigrPrint(screen, smallFont, 30, 75, getTextColor(score), "Obamium");
+                } else if (currentCostume == 2) {
+                    tigrPrint(screen, smallFont, 30, 75, getTextColor(score), "You've been CHAYANNED!");
+                }
+            }
 
             tigrUpdate(screen);
         }
 
+        if (score >= highScore) {
+            highScore = score;
+            writeScore(score);
+        }
+
         // Show death and restart screen
-        while (!tigrClosed(screen) && !alive) {
-            tigrClear(backdrop, tigrRGB(200, 200, 200));
+        while (!tigrKeyDown(screen, TK_ESCAPE) && !tigrClosed(screen) && !alive) {
+            drawScreen(backdrop, bloques, score);
 
-            tigrPrint(screen, bigFont, 30, HEIGHT/2-50, tigrRGB(0, 0, 0), "YOU DIED.");
-            tigrPrint(screen, smallFont, 30, HEIGHT/2+15, tigrRGB(0, 0, 0), "Your score: %lld", score);
-            tigrPrint(screen, smallFont, 30, HEIGHT/2+50, tigrRGB(0, 0, 0), "Restart? [Y/N]");
+            // Composite the backdrop and sprite onto the screen.
+            tigrBlit(screen, backdrop, 0, 0, 0, 0, WIDTH, HEIGHT);
+            tigrBlitAlpha(screen, player, playerx, playery, 0, 0, width(player),
+                        height(player), 1.0f);
+            
+            tigrPrint(screen, bigFont, 30, HEIGHT/2-80, getTextColor(score), "YOU DIED.");
+            tigrPrint(screen, smallFont, 30, HEIGHT/2, getTextColor(score), "Your score: %lld", score);
+            tigrPrint(screen, smallFont, 30, HEIGHT/2+35, getTextColor(score), "High score: %lld\n", highScore);
+            tigrPrint(screen, smallFont, 30, HEIGHT/2+80, getTextColor(score), "Restart? [Y/N]");
 
-            if (tigrKeyDown(screen, 'Y')) {
+            if (highScore == 0) {
+                tigrPrint(screen, smallFont, 30, HEIGHT-50, getTextColor(score),
+                    "High score has been reset.");
+            }
+
+            if ((tigrKeyHeld(screen, TK_CONTROL) && tigrKeyDown(screen, 'R')) ||
+                (tigrKeyDown(screen, TK_CONTROL) && tigrKeyHeld(screen, 'R'))) {
+                // Reset scores file
+                writeScore(0);
+                highScore = 0;
+            } else if (tigrKeyDown(screen, 'Y')) {
                 // Reset initial values
                 alive = true;
                 restart = true;
@@ -149,10 +255,7 @@ int main(int argc, char* argv[]) {
                 playerx = WIDTH/2;
                 playery = HEIGHT-200.0f;
                 blocky = HEIGHT-60;
-
-                // Quick-reset matrix and block array
-                memset(screen_matrix, 0, HEIGHT*sizeof(screen_matrix[0]));
-                memset(bloques, 0, BLOCK_MAXN*sizeof(bloques[0]));
+                elapsedTicks = 0;
             } else if (tigrKeyDown(screen, 'N')) {
                 // Set 'alive' to true to exit loop and quit the program.
                 alive = true;
@@ -215,7 +318,7 @@ int update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt
 
         if (on_platform) (*playery)--;
 
-        if(*playery<HEIGHT/2 && isGoingUp(player, dt, t0)){
+        if(*playery<HEIGHT/2 && isGoingUp(dt, t0)){
             yvariation = SCROLL_SPEED*dy(dt, t0);
 
             bajarElementosPantalla(yvariation, bloques);
@@ -241,13 +344,29 @@ int update(Tigr* screen, Tigr* player, int matrix[HEIGHT][WIDTH], int t0, int dt
 
     backdrop: a Tigr* bitmap covering the size of the screen.
     bloques: an array with descriptions of all of the blocks' position and type.
+    score: the current score.
 */
-void drawScreen(Tigr* backdrop, Bloque* bloques) {
-    tigrClear(backdrop, tigrRGB(255, 255, 255));
+void drawScreen(Tigr* backdrop, Bloque* bloques, long long score) {
+    tigrClear(backdrop, getBackgroundColor(score));
+    TPixel platformColor;
 
     for (int i = 0; i < BLOCK_MAXN; i++) {
-        if (bloques[i].tipo == 1) {
-            tigrFill(backdrop, bloques[i].x, bloques[i].y, bloques[i].w, bloques[i].h, tigrRGB(0, 255, 0));
+        if (bloques[i].tipo > 0) {
+            switch (bloques[i].tipo) {
+                case 1: // Fixed platform (#9BDA84: Pistachio)
+                    platformColor = tigrRGB(155, 218, 69);
+                    break;
+                case 2: // Single-use platform (#D5765A: Burnt Sienna)
+                    platformColor = tigrRGB(213, 118, 90);
+                    break;
+                case 3: // Mobile platform (#E9D758: Arylide Yellow)
+                    platformColor = tigrRGB(233, 215, 88);
+                    break;
+                default: // Other (#ffffff: White) - for debugging purposes
+                    platformColor = tigrRGB(255, 255, 255);
+            }
+
+            tigrFill(backdrop, bloques[i].x, bloques[i].y, bloques[i].w, bloques[i].h, platformColor);
         }
     }
 }
@@ -261,9 +380,9 @@ void drawScreen(Tigr* backdrop, Bloque* bloques) {
 
     bloques: an array with descriptions of all of the blocks' position and type.
     matrix: a matrix with HEIGHT rows and WIDTH cols representing all the pixels in the screen.
+    score: the current score.
 */
-void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
-    Bloque generated_block;
+void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH], long long score) {
     int overflow = 0;
 
     // Get the number of platforms that overflow the height of the screen.
@@ -277,9 +396,7 @@ void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
     // Quick-reset matrix to 0.
     memset(matrix, 0, HEIGHT*sizeof(matrix[0]));
 
-    // Generate new blocks on the right.
-    generated_block.w = PLATFORM_WIDTH;
-    generated_block.h = PLATFORM_HEIGHT;
+    // Generate new blocks
     for (int idx = 0; idx < BLOCK_MAXN; idx++) {
         if (bloques[idx].tipo == 0) {
             if (idx == 0) {
@@ -298,23 +415,17 @@ void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
             } else {
                 // Generate a block 60 pixels above the previous one with 30% chance.
                 if (randrange(0, 10) < 3) {
-                    generated_block.tipo = 1;
-                    generated_block.y = bloques[idx-1].y - 60;
-                    generated_block.x = randrange(0, WIDTH-PLATFORM_WIDTH);
+                    bloques[idx] = randomPlatform(randomPlatformType(score), bloques[idx-1].y-60);
                 } else {
                     // Otherwise generate a block 120 pixels above the previous one with 100% chance.
-                    generated_block.tipo = 1;
-                    generated_block.y = bloques[idx-1].y - 120;
-                    generated_block.x = randrange(0, WIDTH-PLATFORM_WIDTH);
+                    bloques[idx] = randomPlatform(randomPlatformType(score), bloques[idx-1].y-120);
                 }
-
-                bloques[idx] = generated_block;
             }
         }
 
         for (int i = max(bloques[idx].y, 0); i < min(bloques[idx].y + bloques[idx].h, HEIGHT); i++) {
             for (int j = 0; j < bloques[idx].w; j++) {
-                matrix[i][bloques[idx].x + j] = bloques[idx].tipo;
+                if (bloques[idx].tipo > 0) matrix[i][bloques[idx].x + j] = bloques[idx].tipo;
             }
         }
     }
@@ -330,16 +441,53 @@ void generatePlatforms(Bloque* bloques, int matrix[HEIGHT][WIDTH]) {
 */
 void bajarElementosPantalla(int n, Bloque* bloques) {
     for (int i = 0; i < BLOCK_MAXN; i++) {
-        // Check for potential overflow or underflow before updating y
-        if ((n > 0 && INT_MAX - bloques[i].y < n) || (n < 0 && INT_MIN - bloques[i].y > n)) {
-            // Handle overflow or underflow case appropriately
-            if (n > 0) {
-                bloques[i].y = INT_MAX;
-            } else {
-                bloques[i].y = INT_MIN;
+        bloques[i].y += n;
+    }
+}
+
+/*
+    Procedure: updatePlatforms
+    --------------------------
+    This function updates the state of the platforms in the current tick. It
+    essentially does two different things:
+        1. If movePlatforms is true, the x position of all mobile platforms in
+           the block array will be shifted 1 pixel to the right in the
+           specified direction (unless colliding with a wall).
+        2. If the sprite is standing on a single-use platform, delete it so
+           that it cannot be used again.
+    
+    bloques: an array with descriptions of all of the blocks' position and type.
+    y: the y position of the sprite's lower side, i.e. (player->y + player->h).
+    movePlatforms: if true, all mobile platforms will move 1 pixel towards their
+        specified direction. Only applied after the number of ticks in PLATFORM_MOV_TICKS.
+    onPlatform: boolean indicating if the sprite is in contact with a solid block.
+    goingDown: boolean indicating if the sprite is moving downwards.
+*/
+void updatePlatforms(Bloque* bloques, float y, bool movePlatforms, bool onPlatform, bool goingDown) {
+    for (int i = 0; i < BLOCK_MAXN; i++) {
+        if (bloques[i].tipo == 2 && onPlatform && goingDown) {
+            // Check if the sprite is standing on top of a single-use platform.
+            if (y >= bloques[i].y && y <= bloques[i].y + bloques[i].h) {
+                // If so, then delete it. We use an arbitrary value of -1
+                // to avoid generating new platforms in this position.
+                bloques[i].tipo = -1;
             }
-        } else {
-            bloques[i].y += n;
+        } else if (bloques[i].tipo == 3 && movePlatforms) {
+            if (bloques[i].direction == 0) { // Move to the left
+                bloques[i].x -= 1;
+                
+                if (bloques[i].x <= 0) { // Reached wall, change direction
+                    bloques[i].x = 0;
+                    bloques[i].direction = 1;
+                }
+            } else { // Move to the right
+                bloques[i].x += 1;
+
+                if (bloques[i].x >= WIDTH-PLATFORM_WIDTH) {
+                    bloques[i].x = WIDTH-PLATFORM_WIDTH;
+                    bloques[i].direction = 0;
+                }
+            }
         }
     }
 }
@@ -409,15 +557,13 @@ bool isOnPlatform(Tigr* player, int matrix[HEIGHT][WIDTH], float playerx, float 
     -------------------
     Returns true if the sprite is moving upward, i.e. the velocity is positive.
 
-    player: the Tigr* variable representing the moveable sprite.
     t: the current timestamp, in milliseconds.
     t0: the timestamp of the beginning of the oscillation, in milliseconds.
 
     returns: true if y(t) > 0 and d(y)/dt > 0, false otherwise.
 */
-bool isGoingUp(Tigr* player, int t, int t0) {
+bool isGoingUp(int t, int t0) {
     return dy(t, t0) > 0;
-    // return (y(t, t0) > 0 && dy(t, t0) > 0);
 }
 
 // ---------------------------------- //
@@ -499,4 +645,187 @@ void shiftBlockArray(Bloque* bloques, int n) {
             bloques[i+n].tipo = 0;
         }
     }
+}
+
+/*
+    Function: randomPlatformType
+    ----------------------------
+    Returns a randomized platform type for platform generation, based on the
+    current score.
+        - Single-use platforms (type 2) start appearing at score 1500 and have
+          a 25% chance of appearing.
+        - Mobile platforms (type 3) start appearing at score 3000 and have a
+          20% chance of appearing.
+    If none of these conditions are met, the return value defaults to type 1
+    (regular solid block).
+
+    score: the current score.
+
+    returns: a platform type (value between 1 and 3).
+*/
+int randomPlatformType(long long score) {
+    int random = randrange(0, 100);
+    int type = 1;
+   
+    if (score >= 1500 && random >= 0 && random < 25) type = 2;
+    else if (score >= 3000 && random >= 25 && random < 45) type = 3;
+    
+    return type;
+}
+
+/*
+    Function: randomPlatform
+    ------------------------
+    Generates a platform of a given type at a random x-axis position given
+    its y-axis location.
+
+    type: the type of the platform (value between 1 and 3).
+    y: the vertical position of the platform.
+
+    returns: the generated block.
+*/
+Bloque randomPlatform(int type, int y) {
+    Bloque generatedBlock;
+
+    // Set platform type, width and height
+    generatedBlock.tipo = type;
+    generatedBlock.w = PLATFORM_WIDTH;
+    generatedBlock.h = PLATFORM_HEIGHT;
+
+    // Set desired y and random x
+    generatedBlock.y = y;
+    generatedBlock.x = randrange(0, WIDTH-PLATFORM_WIDTH);
+
+    // Set random direction (only if type = 2)
+    if (type == 2 && randrange(0, 10) < 5) generatedBlock.direction = 0;
+    else generatedBlock.direction = 1;
+
+    return generatedBlock;
+}
+
+/*
+    Function: getBackgroundColor
+    ----------------------------
+    Returns the background color of the window given the current score. This
+    color begins at a light cyan, and after 6000 points, it shifts to a dark
+    gray by means of a 500-point-long color gradient. Then, it remains dark
+    for 6000 more points, and finally it returns to the light setting with a
+    new gradient.
+
+    Color palette: https://coolors.co/caf0f8-3d3d49-d5765a-e9d758-9bda84
+
+    score: the current score.
+
+    returns: a TPixel object with the RGB values of the background color.
+*/
+TPixel getBackgroundColor(long long score) {
+    long long mod = score % 13000LL;
+    unsigned char red = 0, green = 0, blue = 0;
+
+    if (mod < 6000) {
+        // Solid #CAF0F8 (Light Cyan)
+
+        red = 202;
+        green = 240;
+        blue = 248;
+    } else if (mod <= 6500) {
+        // Get clear-to-dark color gradient
+        // Starting color: #CAF0F8 (Light Cyan) -- RGB(202, 240, 248)
+        // Ending color: #3D3D49 (Onyx) -- RGB(61, 61, 73)
+
+        red = 202 + ((float)(mod - 6000) / 500.0f) * (61 - 202);
+        green = 240 + ((float)(mod - 6000) / 500.0f) * (61 - 240);
+        blue = 248 + ((float)(mod - 6000) / 500.0f) * (73 - 248);
+    } else if (mod < 12500) {
+        // Solid #3D3D49 (Onyx)
+
+        red = green = 61;
+        blue = 73;
+    } else {
+        // Get dark-to-clear color gradient
+        // Starting color: #3D3D49 (Onyx) -- RGB(61, 61, 73)
+        // Ending color: #CAF0F8 (Light Cyan) -- RGB(202, 240, 248)
+
+        red = 61 + ((float)(mod - 12500) / 500.0f) * (202 - 61);
+        green = 61 + ((float)(mod - 12500) / 500.0f) * (240 - 61);
+        blue = 73 + ((float)(mod - 12500) / 500.0f) * (248 - 73);
+    }
+
+    return tigrRGB(red, green, blue);
+}
+
+/*
+    Function: getTextColor
+    ----------------------
+    Returns the RGB color for optimal contrast between the text and the
+    background. It applies the concept of relative luminance to determine
+    the brightness of the background and thus choose a lighter or darker
+    color accordingly.
+
+    Adapted from: https://stackoverflow.com/a/1855903 (CC BY-SA 4.0)
+    See also: https://www.w3.org/TR/AERT/#color-contrast
+
+    score: the current score.
+
+    returns: a TPixel object with the RGB values of the text color.
+*/
+TPixel getTextColor(long long score) {
+    TPixel bgColor = getBackgroundColor(score);
+    unsigned char color;
+
+    double luminance = (0.299 * bgColor.r + 0.587 * bgColor.g + 0.114 * bgColor.b) / 255;
+
+    if (luminance > 0.5) color = 0; // Black
+    else color = 255;               // White
+
+    return tigrRGB(color, color, color);
+}
+
+// ---------------------------------- //
+//           FILE HANDLING            //
+// ---------------------------------- //
+
+/*
+    Procedure: writeScore
+    ---------------------
+    Writes the provided value to a binary file in the working directory
+    under the name 'scores.bin'.
+
+    score: the value to be written.
+*/
+void writeScore(long long score) {
+    size_t bytesWritten;
+    FILE *file;
+
+    file = fopen("./scores.bin", "wb");
+    if (file) {
+        bytesWritten = fwrite(&score, sizeof(score), 1, file);
+
+        if (DEBUG) printf("Wrote %zu bytes to ./scores.bin\n", bytesWritten);
+    } else if (DEBUG) {
+        tigrError(0, "Error opening file ./scores.bin\n");
+    }
+}
+
+/*
+    Function: readScore
+    -------------------
+    Returns a 64-bit integer that is read from a binary file inside the
+    working directory under the name 'scores.bin'.
+
+    returns: the obtained value.
+*/
+long long readScore() {
+    size_t bytesRead;
+    long long score = 0;
+    FILE *file;
+
+    file = fopen("./scores.bin", "rb");
+    if (file) {
+        bytesRead = fread(&score, sizeof(score), 1, file);
+
+        if (DEBUG) printf("Read %zu bytes from ./scores.bin\n", bytesRead);
+    }
+    
+    return score;
 }
