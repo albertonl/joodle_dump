@@ -95,7 +95,7 @@ int main(int argc, char* argv[]) {
     int elapsedTicks = 0;
     int t, t0;
 
-    long long score = 0;
+    long long score = 0, highScore = 0;
     bool alive = true;
     bool restart;
     
@@ -144,6 +144,9 @@ int main(int argc, char* argv[]) {
                 alive = false;
             } else {
                 score += update(screen, player, screen_matrix, t0, t, &blocky, &playerx, &playery, bloques);
+
+                // Save high score
+                if (highScore > 0 && score > highScore) highScore = score;
             }
 
             // Composite the backdrop and sprite onto the screen.
@@ -151,18 +154,22 @@ int main(int argc, char* argv[]) {
             tigrBlitAlpha(screen, player, playerx, playery, 0, 0, width(player),
                         height(player), 1.0f);
             
-            tigrPrint(screen, smallFont, 30, 30, getTextColor(score), "%lld", score);
+            tigrPrint(screen, smallFont, 30, 30, getTextColor(score), "%lld %s",
+                score, (highScore == score && highScore > 0) ? "NEW HIGH SCORE!" : "");
 
             tigrUpdate(screen);
         }
+
+        if (score > highScore) highScore = score;
 
         // Show death and restart screen
         while (!tigrKeyDown(screen, TK_ESCAPE) && !tigrClosed(screen) && !alive) {
             tigrClear(backdrop, tigrRGB(200, 200, 200));
 
-            tigrPrint(screen, bigFont, 30, HEIGHT/2-50, getTextColor(score), "YOU DIED.");
-            tigrPrint(screen, smallFont, 30, HEIGHT/2+15, getTextColor(score), "Your score: %lld", score);
-            tigrPrint(screen, smallFont, 30, HEIGHT/2+50, getTextColor(score), "Restart? [Y/N]");
+            tigrPrint(screen, bigFont, 30, HEIGHT/2-80, getTextColor(score), "YOU DIED.");
+            tigrPrint(screen, smallFont, 30, HEIGHT/2, getTextColor(score), "Your score: %lld", score);
+            tigrPrint(screen, smallFont, 30, HEIGHT/2+35, getTextColor(score), "High score: %lld\n", score);
+            tigrPrint(screen, smallFont, 30, HEIGHT/2+80, getTextColor(score), "Restart? [Y/N]");
 
             if (tigrKeyDown(screen, 'Y')) {
                 // Reset initial values
