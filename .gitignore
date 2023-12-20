@@ -57,3 +57,4 @@ joodle
 # Misc
 .vscode/
 .DS_Store
+*.bin

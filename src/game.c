@@ -19,6 +19,7 @@
 #include <sys/time.h>
 #include "tigr.h"
 
+#define DEBUG false
 #define WIDTH 480
 #define HEIGHT 640
 #define BLOCK_MAXN 10
@@ -73,6 +74,10 @@ Bloque randomPlatform(int, int);
 TPixel getBackgroundColor(long long);
 TPixel getTextColor(long long);
 
+// File handling
+void writeScore(long long);
+long long readScore();
+
 int main(int argc, char* argv[]) {
     Tigr* screen = tigrWindow(WIDTH, HEIGHT, "Joodle Dump", 0);
     Tigr* backdrop = tigrBitmap(WIDTH, HEIGHT);
@@ -95,10 +100,10 @@ int main(int argc, char* argv[]) {
     int elapsedTicks = 0;
     int t, t0;
 
-    long long score = 0, highScore = 0;
+    long long score = 0, highScore = readScore();
     bool alive = true;
     bool restart;
-    
+
     int screen_matrix[HEIGHT][WIDTH];
     Bloque bloques[BLOCK_MAXN];
 
@@ -138,9 +143,18 @@ int main(int argc, char* argv[]) {
                 t0 = t;
             }
 
+            // Handle pause keyboard shortcut [P/Space]
+            if (tigrKeyDown(screen, 'P')) {
+                tigrPrint(screen, smallFont, 30, HEIGHT-50, getTextColor(score), "Paused. Press P to resume.");
+                while (tigrKeyHeld(screen, 'P'))
+                    tigrUpdate(screen);
+                while (!tigrKeyDown(screen, 'P'))
+                    tigrUpdate(screen);
+            }
+
             // Check if user is touching the bottom of the screen
             if (!isOnPlatform(player, screen_matrix, playerx, playery) && playery >= HEIGHT-height(player) && blocky < playery) {
-                printf("YOU DIED. Your score: %lld\n", score);
+                if (DEBUG) printf("YOU DIED. Your score: %lld\n", score);
                 alive = false;
             } else {
                 score += update(screen, player, screen_matrix, t0, t, &blocky, &playerx, &playery, bloques);
@@ -160,18 +174,36 @@ int main(int argc, char* argv[]) {
             tigrUpdate(screen);
         }
 
-        if (score > highScore) highScore = score;
+        if (score >= highScore) {
+            highScore = score;
+            writeScore(score);
+        }
 
         // Show death and restart screen
         while (!tigrKeyDown(screen, TK_ESCAPE) && !tigrClosed(screen) && !alive) {
-            tigrClear(backdrop, tigrRGB(200, 200, 200));
+            drawScreen(backdrop, bloques, score);
 
+            // Composite the backdrop and sprite onto the screen.
+            tigrBlit(screen, backdrop, 0, 0, 0, 0, WIDTH, HEIGHT);
+            tigrBlitAlpha(screen, player, playerx, playery, 0, 0, width(player),
+                        height(player), 1.0f);
+            
             tigrPrint(screen, bigFont, 30, HEIGHT/2-80, getTextColor(score), "YOU DIED.");
             tigrPrint(screen, smallFont, 30, HEIGHT/2, getTextColor(score), "Your score: %lld", score);
-            tigrPrint(screen, smallFont, 30, HEIGHT/2+35, getTextColor(score), "High score: %lld\n", score);
+            tigrPrint(screen, smallFont, 30, HEIGHT/2+35, getTextColor(score), "High score: %lld\n", highScore);
             tigrPrint(screen, smallFont, 30, HEIGHT/2+80, getTextColor(score), "Restart? [Y/N]");
 
-            if (tigrKeyDown(screen, 'Y')) {
+            if (highScore == 0) {
+                tigrPrint(screen, smallFont, 30, HEIGHT-50, getTextColor(score),
+                    "High score has been reset.");
+            }
+
+            if ((tigrKeyHeld(screen, TK_CONTROL) && tigrKeyDown(screen, 'R')) ||
+                (tigrKeyDown(screen, TK_CONTROL) && tigrKeyHeld(screen, 'R'))) {
+                // Reset scores file
+                writeScore(0);
+                highScore = 0;
+            } else if (tigrKeyDown(screen, 'Y')) {
                 // Reset initial values
                 alive = true;
                 restart = true;
@@ -713,4 +745,53 @@ TPixel getTextColor(long long score) {
     else color = 255;               // White
 
     return tigrRGB(color, color, color);
+}
+
+// ---------------------------------- //
+//           FILE HANDLING            //
+// ---------------------------------- //
+
+/*
+    Procedure: writeScore
+    ---------------------
+    Writes the provided value to a binary file in the working directory
+    under the name 'scores.bin'.
+
+    score: the value to be written.
+*/
+void writeScore(long long score) {
+    size_t bytesWritten;
+    FILE *file;
+
+    file = fopen("./scores.bin", "wb");
+    if (file) {
+        bytesWritten = fwrite(&score, sizeof(score), 1, file);
+
+        if (DEBUG) printf("Wrote %zu bytes to ./scores.bin\n", bytesWritten);
+    } else if (DEBUG) {
+        tigrError(0, "Error opening file ./scores.bin\n");
+    }
+}
+
+/*
+    Function: readScore
+    -------------------
+    Returns a 64-bit integer that is read from a binary file inside the
+    working directory under the name 'scores.bin'.
+
+    returns: the obtained value.
+*/
+long long readScore() {
+    size_t bytesRead;
+    long long score = 0;
+    FILE *file;
+
+    file = fopen("./scores.bin", "rb");
+    if (file) {
+        bytesRead = fread(&score, sizeof(score), 1, file);
+
+        if (DEBUG) printf("Read %zu bytes from ./scores.bin\n", bytesRead);
+    }
+    
+    return score;
 }
