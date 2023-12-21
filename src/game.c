@@ -451,7 +451,7 @@ void bajarElementosPantalla(int n, Bloque* bloques) {
     This function updates the state of the platforms in the current tick. It
     essentially does two different things:
         1. If movePlatforms is true, the x position of all mobile platforms in
-           the block array will be shifted 1 pixel to the right in the
+           the block array will be shifted 1 pixel to the towards their
            specified direction (unless colliding with a wall).
         2. If the sprite is standing on a single-use platform, delete it so
            that it cannot be used again.
@@ -560,7 +560,7 @@ bool isOnPlatform(Tigr* player, int matrix[HEIGHT][WIDTH], float playerx, float 
     t: the current timestamp, in milliseconds.
     t0: the timestamp of the beginning of the oscillation, in milliseconds.
 
-    returns: true if y(t) > 0 and d(y)/dt > 0, false otherwise.
+    returns: true if dy/dt > 0, false otherwise.
 */
 bool isGoingUp(int t, int t0) {
     return dy(t, t0) > 0;
